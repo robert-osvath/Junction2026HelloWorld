@@ -7,7 +7,7 @@ Plan and contracts: see `CLAUDE.md`. Shared models: `contracts/models.py`; examp
 brew install uv python@3.12      # if ~/.local isn't writable, uv uses brew's 3.12
 cp .env.example .env             # add VALIO_API_KEY
 uv sync
-uv run scripts/download_data.py  # -> data/products.json, delivery_reliability.csv, carbon_footprint.csv
+uv run scripts/download_data.py  # -> data/products.json, product_schema.json, delivery_reliability.csv, carbon_footprint.csv
 ```
 
 ## Run

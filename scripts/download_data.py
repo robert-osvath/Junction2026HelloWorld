@@ -11,7 +11,8 @@ FILES = {
     "products.json": "/api/products/download",
     "delivery_reliability.csv": "/api/delivery-reliability/download",
     "carbon_footprint.csv": "/api/carbon-footprint/download",
-    # shortcut: product JSON schema URL is behind the site login; add it here once someone has it
+    # no API endpoint for the schema; direct file link from the logged-in site home page
+    "product_schema.json": "/files/008f9a50ba9a6538d2e5bdf29d592af8/valio_aimo_junction26_product_data_schema.json",
 }
 DATA = Path(__file__).resolve().parent.parent / "data"
 
