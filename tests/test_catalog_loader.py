@@ -1,11 +1,12 @@
 """T1 catalog loader: unit tests on 3 sample products + full-data checks (skipped without data/)."""
+import copy
 import json
 from pathlib import Path
 
 import pytest
 
-from app.catalog.loader import DATA, load, load_from_files, normalize
-from app.catalog.store import connect
+from app.catalog.loader import DATA_DIR, load, load_from_files, normalize, read_csv_map
+from app.catalog.store import PRODUCT_COLUMNS, connect
 
 SAMPLES = json.loads((Path(__file__).parent / "fixtures" / "sample_products.json").read_text())
 RELIABILITY = {"460025": 0.996}
@@ -19,12 +20,24 @@ def conn():
     return c
 
 
-def by_id(pid):
-    return normalize(next(p for p in SAMPLES if p["id"] == pid), RELIABILITY, CO2)
+def sample(pid):
+    return copy.deepcopy(next(p for p in SAMPLES if p["id"] == pid))
 
+
+def with_allergens(raw, allergen=(), non_allergen=()):
+    """Replace a raw product's allergen / nonAllergen classifications."""
+    for c in raw["synkkaData"]["classifications"]:
+        if c["name"] == "allergen":
+            c["values"] = [{"id": code, "unit": level} for code, level in allergen]
+        if c["name"] == "nonAllergen":
+            c["values"] = [{"id": code, "unit": "FREE_FROM"} for code in non_allergen]
+    return raw
+
+
+# --- the 3 sample products ---
 
 def test_eila_milk_normalized():
-    r = by_id("463038")
+    r = normalize(sample("463038"), RELIABILITY, CO2)
     p = r["product"]
     assert p["name_fi"] == "Valio Eila® kevytmaitojuoma 10 l novobox laktoositon"
     assert p["name_en"].startswith("Valio Eila® semi skimmed milk drink 10 l")
@@ -37,7 +50,7 @@ def test_eila_milk_normalized():
 
 
 def test_potato_salad_contains_egg():
-    r = by_id("460000")
+    r = normalize(sample("460000"), RELIABILITY, CO2)
     assert r["product"]["vendor_name"] == "ATRIA SUOMI OY TUORE"
     assert ("AE", "CONTAINS") in r["allergens"]
     assert r["product"]["key_ingredients_en"].startswith("potato 56 %")
@@ -45,12 +58,47 @@ def test_potato_salad_contains_egg():
 
 
 def test_courgette_has_substitute_but_no_allergen_data():
-    r = by_id("460025")
+    r = normalize(sample("460025"), RELIABILITY, CO2)
     assert r["product"]["has_allergen_data"] == 0
     assert r["allergens"] == []
     assert r["product"]["delivery_reliability"] == 0.996
     assert r["substitutions"] == ["460150"]
 
+
+def test_normalize_produces_exactly_the_product_columns():
+    assert set(normalize(sample("463038"), {}, {})["product"]) == set(PRODUCT_COLUMNS)
+
+
+# --- edge cases seen in the real data ---
+
+def test_undeclared_allergens_dropped_and_not_counted_as_data():
+    raw = with_allergens(sample("460025"), allergen=[("AM", "UNDECLARED")])
+    r = normalize(raw, {}, {})
+    assert r["allergens"] == [] and r["product"]["has_allergen_data"] == 0
+
+
+def test_conflicting_levels_keep_the_most_cautious():
+    # real case 468044: AM listed as CONTAINS and FREE_FROM; 469429: MAY_CONTAIN and FREE_FROM
+    raw = with_allergens(sample("460025"), allergen=[("AM", "CONTAINS"), ("AN", "MAY_CONTAIN")],
+                         non_allergen=["AM", "AN", "AY"])
+    assert normalize(raw, {}, {})["allergens"] == [("AM", "CONTAINS"), ("AN", "MAY_CONTAIN"),
+                                                   ("AY", "FREE_FROM")]
+
+
+def test_self_substitution_dropped():
+    raw = sample("460025")
+    raw["substitutions"].append({"product": "460025", "substituteProduct": "460025"})
+    assert normalize(raw, {}, {})["substitutions"] == ["460150"]
+
+
+def test_read_csv_map_skips_blanks_and_missing_file(tmp_path):
+    f = tmp_path / "r.csv"
+    f.write_text("productId,deliveryReliability\n1,0.5\n2,\n3, \n")
+    assert read_csv_map(f, "deliveryReliability") == {"1": 0.5}
+    assert read_csv_map(tmp_path / "nope.csv", "deliveryReliability") == {}
+
+
+# --- loading into the DB ---
 
 def test_load_writes_all_tables(conn):
     assert conn.execute("SELECT COUNT(*) FROM products").fetchone()[0] == 3
@@ -60,23 +108,34 @@ def test_load_writes_all_tables(conn):
     assert conn.execute("SELECT COUNT(*) FROM substitutions").fetchone()[0] == 0
 
 
-def test_reload_replaces_rows(conn):
-    load(conn, SAMPLES[:1], RELIABILITY, CO2)
-    assert conn.execute("SELECT COUNT(*) FROM products").fetchone()[0] == 1
+def test_load_skips_deleted_and_replaces_rows(conn):
+    deleted = sample("460000")
+    deleted["deleted"] = True
+    assert load(conn, [sample("463038"), deleted], {}, {}) == 1
+    assert [r[0] for r in conn.execute("SELECT id FROM products")] == ["463038"]
 
+
+# --- full real catalog (needs `uv run scripts/download_data.py`) ---
 
 LACTOSE_FREE_MILK = """
-SELECT COUNT(*) FROM products p JOIN product_claims c ON c.product_id = p.id
-WHERE c.claim = 'FREE_FROM_LACTOSE'
+SELECT COUNT(*) FROM products p
+WHERE EXISTS (SELECT 1 FROM product_claims c WHERE c.product_id = p.id AND c.claim = 'FREE_FROM_LACTOSE')
+  AND EXISTS (SELECT 1 FROM product_allergens a
+              WHERE a.product_id = p.id AND a.code = 'AM' AND a.level = 'CONTAINS')
   AND (lower(p.name_fi) LIKE '%maito%' OR lower(p.name_en) LIKE '%milk%')
 """
 
 
-@pytest.mark.skipif(not (DATA / "products.json").exists(), reason="run scripts/download_data.py")
+@pytest.mark.skipif(not (DATA_DIR / "products.json").exists(), reason="run scripts/download_data.py")
 def test_full_catalog():
     c = connect(":memory:")
     assert load_from_files(c) == 17546
-    assert 75 <= c.execute(LACTOSE_FREE_MILK).fetchone()[0] <= 100
+    # spec: ~85 lactose-free milk products (lactose-free claim, made from milk, named milk)
+    assert c.execute(LACTOSE_FREE_MILK).fetchone()[0] == 85
     share = c.execute("SELECT AVG(has_allergen_data) FROM products").fetchone()[0]
-    assert 0.50 <= share <= 0.58
-    assert c.execute("SELECT COUNT(*) FROM substitutions").fetchone()[0] > 150
+    assert 0.52 <= share <= 0.56  # team note: allergen data on ~54%
+    levels = {r[0] for r in c.execute("SELECT DISTINCT level FROM product_allergens")}
+    assert levels == {"CONTAINS", "MAY_CONTAIN", "FREE_FROM"}
+    assert c.execute("SELECT COUNT(*) FROM substitutions WHERE product_id = substitute_id").fetchone()[0] == 0
+    eila = c.execute("SELECT level FROM product_allergens WHERE product_id='463038' AND code='AM'").fetchone()
+    assert eila[0] == "CONTAINS"
