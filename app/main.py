@@ -1,4 +1,7 @@
+from dotenv import load_dotenv
 from fastapi import FastAPI
+
+load_dotenv()  # before app imports read DB_URL
 
 from app.catalog.router import router as catalog
 from app.jury.router import router as jury

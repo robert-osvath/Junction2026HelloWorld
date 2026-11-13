@@ -2,7 +2,14 @@
 name = "trusted-trade-agents"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["fastapi", "uvicorn[standard]", "pydantic>=2", "httpx", "python-dotenv"]
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "pydantic>=2",
+    "httpx",
+    "python-dotenv",
+    "pymysql>=1.2.4",
+]
 
 [dependency-groups]
 dev = ["pytest"]

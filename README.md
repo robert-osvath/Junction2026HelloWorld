@@ -14,7 +14,8 @@ uv run scripts/download_data.py  # -> data/products.json, product_schema.json, d
 ```bash
 uv run uvicorn app.main:app --reload    # http://localhost:8000/docs
 uv run pytest -q                         # smoke test over every endpoint
-docker compose -f db/docker-compose.yml up -d   # MariaDB 11.4 on :3306 (aimo/aimo, db aimo)
+docker compose -f db/docker-compose.yml up -d   # MariaDB 11.4 on :3306 (aimo/aimo, db aimo + aimo_test)
+# DB_URL in .env -> audit log in MariaDB (system-versioned); unset -> in-memory. DB_URL_TEST runs the MariaDB audit test.
 ```
 
 ## Lanes
