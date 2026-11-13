@@ -41,8 +41,10 @@ Out of scope for now: pitch, "edge" features (intent ordering, forward-demand da
   may be later than requested.
 - Price: `catalogPrice`, `listPrice`, `comparisonPrice` per `comparisonUnit` (KG or L), tax, `netPriceFound`.
   Content per sales unit ≈ catalogPrice.value / comparisonPrice.value — approximate, comparisonPrice is rounded
-  to cents (Eila: 31.31/1.57 = 19.94, true 20 L). Prefer `units[].sizeInBaseUnits` × base-unit size; else round
-  the ratio sensibly before `ceil(quantity / content)`, or you'll order one unit too many.
+  to cents (Eila: 31.31/1.57 = 19.94, true 20 L). Exact size = `units[salesUnit].sizeInBaseUnits` × base-unit size,
+  but base-unit size (`synkkaData.unitConversions[synkkaPackagingType=BASE_UNIT_OR_EACH].volume|netWeight`) exists
+  for only 8,215 / 17,546 products (not Eila; units are messy, e.g. volume in KGM). Otherwise round the ratio
+  sensibly before `ceil(quantity / content)`, or you'll order one unit too many.
 - Files (download once): product JSON (17,546 products, 648 vendors, 349 unnamed category codes),
   product JSON schema, delivery reliability CSV (4,425 rows, 0–1), carbon CSV (~11k, category averages).
   Links: GET `/api/products/download`, `/api/delivery-reliability/download`, `/api/carbon-footprint/download` (follow redirects);
@@ -55,7 +57,7 @@ Out of scope for now: pitch, "edge" features (intent ordering, forward-demand da
   `packagingMarkedLabel` (certifications). Allergen data exists for ~54% of products.
 - Demo anchor: ~85 lactose-free milk products, e.g. Valio Eila 10 L Novobox, product `463038`
   (VALIO OY TUORE, category 10400). Live 2026-11-14: sales unit `KI` = case of ~20 L
-  (catalogPrice €31.31 / comparisonPrice €1.57/L), so **1,000 L = 50 units = €1,565.50**. `units`: KI = 2 × ST (one 10 L box) = exactly 20 L.
+  (catalogPrice €31.31 / comparisonPrice €1.57/L), so **1,000 L = 50 units = €1,565.50**. `units`: KI = 2 × ST; "10 L" per ST is only in the name.
   listPrice €36.83 (not catalog+VAT); VAT rate 13.5%.
   `logisticModel: Terminal` → qty 999999, stock evidence is only "estimated"; no delivery-reliability row.
   For requestedDate Mon 2026-11-16 the API returns `closingTime` Thu 2026-11-12 15:00 (already past) and
