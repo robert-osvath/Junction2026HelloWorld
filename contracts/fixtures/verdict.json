@@ -1,0 +1,7 @@
+{
+  "juror": "spec",
+  "decision": "approve",
+  "confidence": 0.95,
+  "reasons": ["Declares FREE_FROM_LACTOSE", "Milk (AM) not banned by mandate"],
+  "model": "claude-haiku-5-5"
+}

@@ -1,0 +1,12 @@
+services:
+  mariadb:
+    image: mariadb:11.4
+    environment:
+      MARIADB_ROOT_PASSWORD: root
+      MARIADB_DATABASE: aimo
+      MARIADB_USER: aimo
+      MARIADB_PASSWORD: aimo
+    ports: ["3306:3306"]
+    volumes: [mariadb:/var/lib/mysql, ./migrations:/docker-entrypoint-initdb.d]
+volumes:
+  mariadb:

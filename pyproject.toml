@@ -1,0 +1,14 @@
+[project]
+name = "trusted-trade-agents"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = ["fastapi", "uvicorn[standard]", "pydantic>=2", "httpx", "python-dotenv"]
+
+[dependency-groups]
+dev = ["pytest"]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

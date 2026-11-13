@@ -1,0 +1,15 @@
+{
+  "product_id": "463038",
+  "name": "Valio Eila® semi skimmed milk drink 10 l novobox lactose free",
+  "sales_unit": "KI",
+  "units_needed": 50,
+  "unit_price_eur": 31.31,
+  "comparison_price_eur": 1.57,
+  "comparison_unit": "L",
+  "total_eur": 1565.5,
+  "available_date": "2026-11-16",
+  "closing_time": "2026-11-12T15:00:00+02:00",
+  "sales_block": false,
+  "logistic_model": "Terminal",
+  "evidence": {"stock": "estimated", "allergens": "declared", "reliability": null}
+}

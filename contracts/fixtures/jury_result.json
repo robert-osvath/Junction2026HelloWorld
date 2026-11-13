@@ -1,0 +1,10 @@
+{
+  "verdicts": [
+    {"juror": "tier0", "decision": "approve", "confidence": 1.0, "reasons": ["Within budget 1565.50 <= 2500", "Not sales-blocked"], "model": null},
+    {"juror": "spec", "decision": "approve", "confidence": 0.95, "reasons": ["Declares FREE_FROM_LACTOSE"], "model": "claude-haiku-5-5"},
+    {"juror": "delivery", "decision": "approve", "confidence": 0.8, "reasons": ["Available 2026-11-16", "Terminal stock: quantity estimated"], "model": "claude-haiku-5-5"},
+    {"juror": "cost", "decision": "approve", "confidence": 0.9, "reasons": ["1.57 EUR/L, under auto-approve limit 2000"], "model": "claude-haiku-5-5"}
+  ],
+  "decision": "auto_order",
+  "chosen_product_id": "463038"
+}

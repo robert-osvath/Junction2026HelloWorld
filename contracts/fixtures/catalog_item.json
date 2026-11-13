@@ -1,0 +1,11 @@
+{
+  "product_id": "463038",
+  "name": "Valio Eila® semi skimmed milk drink 10 l novobox lactose free",
+  "vendor_name": "VALIO OY TUORE",
+  "sales_unit": "KI",
+  "category": "10400",
+  "claims": ["FREE_FROM_LACTOSE", "FREE_FROM_ADDITIVES", "LOW_FAT", "VEGETARIAN"],
+  "allergens_contains": ["AM"],
+  "allergens_may_contain": [],
+  "allergen_data": true
+}
