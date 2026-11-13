@@ -113,3 +113,18 @@ def test_mariadb_concurrent_appends_and_tail_delete():
         cur.execute("DELETE FROM audit_events WHERE id=%s", (last.id,))
     r = store.verify()
     assert not r.ok and r.broken_at == last.id
+
+
+@pytest.mark.skipif(not os.environ.get("DB_URL_TEST"), reason="DB_URL_TEST not set (needs docker compose up)")
+def test_mariadb_rehashed_tail_edit_detected():
+    from app.orders.audit import _sha
+    store = MariaDBStore(os.environ["DB_URL_TEST"])
+    store.reset_for_tests()
+    last = _fill(store)[-1]
+    forged = last.model_copy(update={"payload_hash": _sha({"i": 99})})
+    forged = forged.model_copy(update={"hash": event_hash(forged)})
+    with store.conn() as c, c.cursor() as cur:
+        cur.execute("UPDATE audit_events SET payload=%s, payload_hash=%s, hash=%s WHERE id=%s",
+                    ('{"i": 99}', forged.payload_hash, forged.hash, last.id))
+    r = store.verify()
+    assert not r.ok and r.broken_at == last.id

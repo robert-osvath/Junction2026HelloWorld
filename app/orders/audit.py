@@ -134,11 +134,15 @@ class MariaDBStore:
         r = verify([e for e, _ in rows], {e.id: p for e, p in rows})
         if not r.ok:
             return r
-        with self.conn() as c, c.cursor() as cur:  # any event ever written but no longer current = deleted
-            cur.execute("SELECT id FROM audit_events FOR SYSTEM_TIME ALL WHERE id NOT IN "
-                        "(SELECT id FROM audit_events) ORDER BY ROW_START LIMIT 1")
-            gone = cur.fetchone()
-        return AuditVerify(ok=False, checked=r.checked, broken_at=gone[0]) if gone else r
+        # rows are append-only: an id that's no longer current (deleted) or has >1 version (edited, even if
+        # re-hashed) is tampering. shortcut: needs the app's DB user to lack DELETE HISTORY (see db/migrations)
+        with self.conn() as c, c.cursor() as cur:
+            cur.execute("SELECT h.id FROM audit_events FOR SYSTEM_TIME ALL h "
+                        "LEFT JOIN audit_events cur ON cur.id = h.id "
+                        "GROUP BY h.id HAVING COUNT(*) > 1 OR MAX(cur.id) IS NULL "
+                        "ORDER BY MIN(h.ROW_START) LIMIT 1")
+            bad = cur.fetchone()
+        return AuditVerify(ok=False, checked=r.checked, broken_at=bad[0]) if bad else r
 
     def reset_for_tests(self):
         assert self._args["database"].endswith("_test"), "refusing to wipe a non-test database"
