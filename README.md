@@ -22,3 +22,6 @@ Each lane owns one router and replaces its mock with real code:
 `app/catalog/router.py` (P1), `app/jury/router.py` (P2), `app/orders/router.py` (P4).
 Until then, every endpoint returns the milk-scenario fixtures via `app.mocks.load(name)`.
 Contract changes go in `contracts/models.py` + its fixture, and `pytest` must stay green.
+
+## Workflow
+Feature branch per change (`<lane>/<ticket>-<slug>`), PR to `main`, adversarial `code-review` before every PR. Details in `CLAUDE.md` → Git workflow.

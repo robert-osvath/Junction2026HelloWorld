@@ -12,12 +12,13 @@ Solution page: https://app.notion.com/p/4176750c710381dd8f76d6f5751a2692
 
 ## Git workflow (mandatory, no exceptions)
 - **Never commit or push to `main` directly.** Every change goes on a feature branch named
-  `<lane>/<ticket>-<slug>` (e.g. `p4/t13-audit-log`), branched from an up-to-date `main`.
+  `<lane>/<ticket>-<slug>` (e.g. `p4/t13-audit-log`), or `<lane>/chore-<slug>` for work with no ticket,
+  branched from an up-to-date `main`.
 - Changes reach `main` only through a PR (`gh pr create --base main`). No direct merges, no force-push to `main`.
-- **Adversarial review before every PR, without fail:** run the `code-review` skill against
+- **Adversarial review before every PR, without fail:** run the `code-review` skill (tell it to review adversarially) against
   `git merge-base main HEAD`, reviewing as a skeptic trying to break the change (wrong logic, contract
   drift from `contracts/`, missing tests, secrets, edge cases from the real data). Fix every real finding,
-  re-run until clean, and put a short "Adversarial review" section in the PR body listing what was found
+  re-run until no real findings remain, and put a short "Adversarial review" section in the PR body listing what was found
   and fixed (or why something was left). A PR without that section is not ready.
 - `uv run pytest -q` must pass before opening the PR. Use the `pr` skill for the PR body.
 
@@ -39,7 +40,9 @@ Out of scope for now: pitch, "edge" features (intent ordering, forward-demand da
   Terminal (supplier-shipped, qty always 999999 = unknown), `scheduleLines[0].availableDate`
   may be later than requested.
 - Price: `catalogPrice`, `listPrice`, `comparisonPrice` per `comparisonUnit` (KG or L), tax, `netPriceFound`.
-  Content per sales unit = catalogPrice.value / comparisonPrice.value.
+  Content per sales unit ≈ catalogPrice.value / comparisonPrice.value — approximate, comparisonPrice is rounded
+  to cents (Eila: 31.31/1.57 = 19.94, true 20 L). Prefer `units[].sizeInBaseUnits` × base-unit size; else round
+  the ratio sensibly before `ceil(quantity / content)`, or you'll order one unit too many.
 - Files (download once): product JSON (17,546 products, 648 vendors, 349 unnamed category codes),
   product JSON schema, delivery reliability CSV (4,425 rows, 0–1), carbon CSV (~11k, category averages).
   Links: GET `/api/products/download`, `/api/delivery-reliability/download`, `/api/carbon-footprint/download` (follow redirects);
@@ -52,7 +55,8 @@ Out of scope for now: pitch, "edge" features (intent ordering, forward-demand da
   `packagingMarkedLabel` (certifications). Allergen data exists for ~54% of products.
 - Demo anchor: ~85 lactose-free milk products, e.g. Valio Eila 10 L Novobox, product `463038`
   (VALIO OY TUORE, category 10400). Live 2026-11-14: sales unit `KI` = case of ~20 L
-  (catalogPrice €31.31 / comparisonPrice €1.57/L), so **1,000 L = 50 units = €1,565.50** (list €36.83, 13.5% VAT).
+  (catalogPrice €31.31 / comparisonPrice €1.57/L), so **1,000 L = 50 units = €1,565.50**. `units`: KI = 2 × ST (one 10 L box) = exactly 20 L.
+  listPrice €36.83 (not catalog+VAT); VAT rate 13.5%.
   `logisticModel: Terminal` → qty 999999, stock evidence is only "estimated"; no delivery-reliability row.
   For requestedDate Mon 2026-11-16 the API returns `closingTime` Thu 2026-11-12 15:00 (already past) and
   availableDate 2026-11-16 — the jury must decide how to treat a past cut-off.
@@ -115,8 +119,7 @@ GET  /audit?order_id=   GET /audit/verify                             P4
 ```
 
 ## Dev setup
-`uv sync` (Python 3.12; if `~/.local` isn't writable, `brew install python@3.12` and uv uses it) ·
-`uv run uvicorn app.main:app --reload` · `uv run pytest -q` · `docker compose -f db/docker-compose.yml up -d`.
+Run commands: see README.md.
 Each lane replaces its mock in its own router: `app/catalog/router.py`, `app/jury/router.py`, `app/orders/router.py`;
 fixtures served via `app.mocks.load(name)`.
 
