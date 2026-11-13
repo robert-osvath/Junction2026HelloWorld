@@ -1,0 +1,1185 @@
+[
+ {
+  "id": "463038",
+  "salesUnitGtin": "6408430100330",
+  "salesUnit": "KI",
+  "baseUnit": "ST",
+  "category": "10400",
+  "allowedLotSize": 0.01,
+  "deleted": false,
+  "temperatureCondition": 4,
+  "vendorName": "VALIO OY TUORE",
+  "countryOfOrigin": "fi",
+  "synkkaData": {
+   "gtin": "6408430000760",
+   "lastUpdated": "2025-09-29T20:01:27+0300",
+   "mediasLastUpdated": "2025-09-15T09:55:55+0300",
+   "countriesOfOrigin": [
+    "246"
+   ],
+   "names": [
+    {
+     "value": "Valio Eila® semi skimmed milk drink 10 l novobox lactose free",
+     "language": "en"
+    },
+    {
+     "value": "Valio Eila® kevytmaitojuoma 10 l novobox laktoositon",
+     "language": "fi"
+    },
+    {
+     "value": "Valio Eila® lättmjölksdryck 10 l novobox laktosfri",
+     "language": "sv"
+    }
+   ],
+   "materialAdditionalDescriptions": [],
+   "marketingTexts": [],
+   "keyIngredients": [
+    {
+     "value": "MILK, vitamin D.",
+     "language": "en"
+    },
+    {
+     "value": "MAITO, D-vitamiini.",
+     "language": "fi"
+    },
+    {
+     "value": "MJÖLK, vitamin D.",
+     "language": "sv"
+    }
+   ],
+   "storageInstructions": [
+    {
+     "value": "Keep refrigerated 0 to +6 °C and protect from light. Once opened, consume within 3 to 4 days.",
+     "language": "en"
+    },
+    {
+     "value": "Säilytettävä valolta suojattuna 0 – +6 °C:ssa.",
+     "language": "fi"
+    },
+    {
+     "value": "Förvaras skyddad för ljus vid 0 – +6 °C. Öppnad förpackning är hållbar 3–4 dagar i kylskåp.",
+     "language": "sv"
+    }
+   ],
+   "preparationInstructions": [],
+   "disposalInformations": [
+    {
+     "value": "Recycle box as carton, inner bag as plastic.",
+     "language": "en"
+    },
+    {
+     "value": "Kierrätä laatikko kartonkina, sisäpussi muovina.",
+     "language": "fi"
+    },
+    {
+     "value": "Återvinn låda som kartong, inre påse som plast",
+     "language": "sv"
+    }
+   ],
+   "usageInstructions": [],
+   "classifications": [
+    {
+     "type": "DECIMAL",
+     "name": "composition",
+     "values": []
+    },
+    {
+     "type": "DECIMAL",
+     "name": "gda",
+     "values": [
+      {
+       "id": "CHOAVL",
+       "value": 3.1,
+       "unit": "GRM"
+      },
+      {
+       "id": "ENER-E14",
+       "value": 39.0,
+       "unit": "E14"
+      },
+      {
+       "id": "ENER-KJO",
+       "value": 164.0,
+       "unit": "KJO"
+      },
+      {
+       "id": "FASAT",
+       "value": 0.9,
+       "unit": "GRM"
+      },
+      {
+       "id": "FAT",
+       "value": 1.5,
+       "unit": "GRM"
+      },
+      {
+       "id": "FIBTG",
+       "value": 0.0,
+       "unit": "GRM"
+      },
+      {
+       "id": "LACS",
+       "value": 0.0,
+       "unit": "GRM"
+      },
+      {
+       "id": "PRO-",
+       "value": 3.3,
+       "unit": "GRM"
+      },
+      {
+       "id": "SALTEQ",
+       "value": 0.1,
+       "unit": "GRM"
+      },
+      {
+       "id": "SUGAR-",
+       "value": 3.1,
+       "unit": "GRM"
+      }
+     ]
+    },
+    {
+     "type": "DECIMAL",
+     "name": "mineral",
+     "values": [
+      {
+       "id": "CA",
+       "value": 120.0,
+       "unit": "MGM"
+      },
+      {
+       "id": "NA",
+       "value": 40.0,
+       "unit": "MGM"
+      }
+     ]
+    },
+    {
+     "type": "DECIMAL",
+     "name": "nutritionFact",
+     "values": [
+      {
+       "id": "CHOAVL",
+       "value": 3.1,
+       "unit": "GRM"
+      },
+      {
+       "id": "ENER-E14",
+       "value": 39.0,
+       "unit": "E14"
+      },
+      {
+       "id": "ENER-KJO",
+       "value": 164.0,
+       "unit": "KJO"
+      },
+      {
+       "id": "FAPUCIS",
+       "value": 0.0,
+       "unit": "GRM"
+      },
+      {
+       "id": "FASAT",
+       "value": 0.9,
+       "unit": "GRM"
+      },
+      {
+       "id": "FAT",
+       "value": 1.5,
+       "unit": "GRM"
+      },
+      {
+       "id": "FIBTG",
+       "value": 0.0,
+       "unit": "GRM"
+      },
+      {
+       "id": "LACS",
+       "value": 0.0,
+       "unit": "GRM"
+      },
+      {
+       "id": "PRO-",
+       "value": 3.3,
+       "unit": "GRM"
+      },
+      {
+       "id": "SALTEQ",
+       "value": 0.1,
+       "unit": "GRM"
+      },
+      {
+       "id": "SUGAR-",
+       "value": 3.1,
+       "unit": "GRM"
+      }
+     ]
+    },
+    {
+     "type": "DECIMAL",
+     "name": "vitamin",
+     "values": [
+      {
+       "id": "VITB12",
+       "value": 0.4,
+       "unit": "MC"
+      }
+     ]
+    },
+    {
+     "type": "ENUM",
+     "name": "packagingMarkedLabel",
+     "values": [
+      {
+       "id": "GOODS_FROM_FINLAND_BLUE_SWAN",
+       "synkkaId": "GOODS_FROM_FINLAND_BLUE_SWAN"
+      },
+      {
+       "id": "coolTemperature"
+      }
+     ]
+    },
+    {
+     "type": "ENUM",
+     "name": "allergen",
+     "values": [
+      {
+       "id": "AM",
+       "unit": "CONTAINS"
+      }
+     ]
+    },
+    {
+     "type": "ENUM",
+     "name": "nonAllergen",
+     "values": []
+    },
+    {
+     "type": "ENUM",
+     "name": "nutritionalClaim",
+     "values": [
+      {
+       "id": "FREE_FROM_ADDITIVES",
+       "synkkaId": "ADDITIVES",
+       "unit": "FREE_FROM"
+      },
+      {
+       "id": "FREE_FROM_COLOURING_AGENTS",
+       "synkkaId": "COLOURING_AGENTS",
+       "unit": "FREE_FROM"
+      },
+      {
+       "id": "FREE_FROM_LACTOSE",
+       "synkkaId": "LACTOSE",
+       "unit": "FREE_FROM"
+      },
+      {
+       "id": "FREE_FROM_PRESERVATIVES",
+       "synkkaId": "PRESERVATIVES",
+       "unit": "FREE_FROM"
+      },
+      {
+       "id": "FREE_FROM_SWEETENERS",
+       "synkkaId": "SWEETENERS",
+       "unit": "FREE_FROM"
+      },
+      {
+       "id": "LOW_FAT",
+       "synkkaId": "FAT",
+       "unit": "LOW"
+      },
+      {
+       "id": "LOW_SODIUM_SALT",
+       "synkkaId": "SODIUM_SALT",
+       "unit": "LOW"
+      },
+      {
+       "id": "NO_ADDED_SUGARS",
+       "synkkaId": "SUGARS",
+       "unit": "NO_ADDED"
+      },
+      {
+       "id": "VEGETARIAN",
+       "synkkaId": "VEGETARIAN",
+       "unit": "DIET"
+      }
+     ]
+    },
+    {
+     "type": "ENUM",
+     "name": "packaging",
+     "values": []
+    }
+   ],
+   "nutritionalContent": [
+    {
+     "id": "CA",
+     "value": 120.0,
+     "unit": "MGM",
+     "unitPrecision": "APPROXIMATELY",
+     "basisQuantity": 100.0,
+     "basisQuantityUnit": "GRM",
+     "dailyValueIntakePercent": 15.0
+    },
+    {
+     "id": "CHOAVL",
+     "value": 3.1,
+     "unit": "GRM",
+     "unitPrecision": "APPROXIMATELY",
+     "basisQuantity": 100.0,
+     "basisQuantityUnit": "GRM"
+    },
+    {
+     "id": "ENER-E14",
+     "value": 39.0,
+     "unit": "E14",
+     "unitPrecision": "APPROXIMATELY",
+     "basisQuantity": 100.0,
+     "basisQuantityUnit": "GRM"
+    },
+    {
+     "id": "ENER-KJO",
+     "value": 164.0,
+     "unit": "KJO",
+     "unitPrecision": "APPROXIMATELY",
+     "basisQuantity": 100.0,
+     "basisQuantityUnit": "GRM"
+    },
+    {
+     "id": "FAMSCIS",
+     "value": 0.3,
+     "unit": "GRM",
+     "unitPrecision": "APPROXIMATELY",
+     "basisQuantity": 100.0,
+     "basisQuantityUnit": "GRM"
+    },
+    {
+     "id": "FAPUCIS",
+     "value": 0.0,
+     "unit": "GRM",
+     "unitPrecision": "APPROXIMATELY",
+     "basisQuantity": 100.0,
+     "basisQuantityUnit": "GRM"
+    },
+    {
+     "id": "FASAT",
+     "value": 0.9,
+     "unit": "GRM",
+     "unitPrecision": "APPROXIMATELY",
+     "basisQuantity": 100.0,
+     "basisQuantityUnit": "GRM"
+    },
+    {
+     "id": "FAT",
+     "value": 1.5,
+     "unit": "GRM",
+     "unitPrecision": "APPROXIMATELY",
+     "basisQuantity": 100.0,
+     "basisQuantityUnit": "GRM"
+    },
+    {
+     "id": "FIBTG",
+     "value": 0.0,
+     "unit": "GRM",
+     "unitPrecision": "APPROXIMATELY",
+     "basisQuantity": 100.0,
+     "basisQuantityUnit": "GRM"
+    },
+    {
+     "id": "ID",
+     "value": 16.0,
+     "unit": "MC",
+     "unitPrecision": "APPROXIMATELY",
+     "basisQuantity": 100.0,
+     "basisQuantityUnit": "GRM",
+     "dailyValueIntakePercent": 10.0
+    },
+    {
+     "id": "LACS",
+     "value": 0.0,
+     "unit": "GRM",
+     "unitPrecision": "APPROXIMATELY",
+     "basisQuantity": 100.0,
+     "basisQuantityUnit": "GRM"
+    },
+    {
+     "id": "NA",
+     "value": 40.0,
+     "unit": "MGM",
+     "unitPrecision": "APPROXIMATELY",
+     "basisQuantity": 100.0,
+     "basisQuantityUnit": "GRM"
+    },
+    {
+     "id": "PRO-",
+     "value": 3.3,
+     "unit": "GRM",
+     "unitPrecision": "APPROXIMATELY",
+     "basisQuantity": 100.0,
+     "basisQuantityUnit": "GRM"
+    },
+    {
+     "id": "RIBF",
+     "value": 0.18,
+     "unit": "MGM",
+     "unitPrecision": "APPROXIMATELY",
+     "basisQuantity": 100.0,
+     "basisQuantityUnit": "GRM",
+     "dailyValueIntakePercent": 12.0
+    },
+    {
+     "id": "SALTEQ",
+     "value": 0.1,
+     "unit": "GRM",
+     "unitPrecision": "APPROXIMATELY",
+     "basisQuantity": 100.0,
+     "basisQuantityUnit": "GRM"
+    },
+    {
+     "id": "SUGAR-",
+     "value": 3.1,
+     "unit": "GRM",
+     "unitPrecision": "APPROXIMATELY",
+     "basisQuantity": 100.0,
+     "basisQuantityUnit": "GRM"
+    },
+    {
+     "id": "VITB12",
+     "value": 0.4,
+     "unit": "MC",
+     "unitPrecision": "APPROXIMATELY",
+     "basisQuantity": 100.0,
+     "basisQuantityUnit": "GRM",
+     "dailyValueIntakePercent": 16.0
+    },
+    {
+     "id": "VITD-",
+     "value": 2.0,
+     "unit": "MC",
+     "unitPrecision": "APPROXIMATELY",
+     "basisQuantity": 100.0,
+     "basisQuantityUnit": "GRM",
+     "dailyValueIntakePercent": 40.0
+    }
+   ],
+   "ingredients": [
+    {
+     "sequence": 1,
+     "names": [
+      {
+       "value": "Milk",
+       "language": "en"
+      },
+      {
+       "value": "Maito",
+       "language": "fi"
+      },
+      {
+       "value": "Mjölk",
+       "language": "sv"
+      }
+     ],
+     "origins": [
+      {
+       "type": "MILKING",
+       "country": "246"
+      }
+     ]
+    }
+   ],
+   "medias": [
+    {
+     "id": 125178,
+     "primary": true
+    }
+   ],
+   "fishingReports": [],
+   "safetyData": [],
+   "brand": "Valio",
+   "variableUnit": false,
+   "vatCode": "MEDIUM",
+   "producers": [
+    {
+     "id": "6408439999997",
+     "name": "Valio Oy"
+    }
+   ],
+   "unitConversions": [
+    {
+     "synkkaPackagingType": "CASE",
+     "width": {
+      "unit": "MMT",
+      "value": 342.0
+     },
+     "length": {
+      "unit": "MMT",
+      "value": 432.0
+     },
+     "height": {
+      "unit": "MMT",
+      "value": 280.0
+     },
+     "grossWeight": {
+      "unit": "GRM",
+      "value": 22890.0
+     }
+    }
+   ]
+  },
+  "units": [
+   {
+    "unitId": "KI",
+    "gtin": "6408430100330",
+    "sizeInBaseUnits": 2.0
+   },
+   {
+    "unitId": "ST",
+    "gtin": "6408430000760",
+    "sizeInBaseUnits": 1.0
+   }
+  ],
+  "deposits": []
+ },
+ {
+  "id": "460000",
+  "salesUnitGtin": "6409460002724",
+  "salesUnit": "RAS",
+  "baseUnit": "RAS",
+  "category": "17301",
+  "allowedLotSize": 0.01,
+  "deleted": false,
+  "temperatureCondition": 4,
+  "vendorName": "ATRIA SUOMI OY TUORE",
+  "countryOfOrigin": "fi",
+  "synkkaData": {
+   "gtin": "6409460002724",
+   "lastUpdated": "2025-05-20T11:02:36+0300",
+   "mediasLastUpdated": "2025-09-15T09:55:55+0300",
+   "countriesOfOrigin": [
+    "246"
+   ],
+   "names": [
+    {
+     "value": "Forssan Potato Salad 400g",
+     "language": "en"
+    },
+    {
+     "value": "Forssan Perunasalaatti 400g",
+     "language": "fi"
+    },
+    {
+     "value": "Forssan Potatissallad 400g",
+     "language": "sv"
+    }
+   ],
+   "materialAdditionalDescriptions": [],
+   "marketingTexts": [
+    {
+     "value": "This rich potato salad is a hearty salad which is perfect for both weekday dinners and parties. Traditionally potato salad is a part of May Day festivities or New Years celebrations. It also makes for a great side for grilled foods. The Forssa-Style Potato Salad is made with fresh mayonnaise, potatoes, tasty pickles, cucumber, and onions. You could also use this Potato Salad as a rich sandwich filling or for a sandwich cake. The Potato Salad can be customized with fresh herbs or smoked fish, ham, or why not cheese cubes! The Forssa-Style Potato Salad can niftily be brought along for a picnic or an outing in its original packaging. You should note, however, that the Potato Salad does not keep for many hours in warm weather, as it should be kept in the refrigerator like other mayonnaise-based salads.",
+     "language": "en"
+    },
+    {
+     "value": "Täyteläinen perunasalaatti on ruokaisa salaatti, joka sopii niin arkeen kuin juhlaan. Perinteisesti perunasalaatti tarjoillaan juhlapöydässä vappuna ja uutena vuotena. Se on myös mainio lisuke grilliherkkujen kylkeen. Forssan Perunasalaatti on valmistettu tuoremajoneesista, perunoista, maukkaasta säilykekurkusta, tuorekurkusta ja sipulista. Perunasalaatti sopii myös ruokaisaksi leivän täytteeksi tai vaikkapa voileipäkakun väliin. Perunasalaattia voi tuunata tuoreilla yrteillä tai savukalalla, kinkulla tai vaikkapa juustokuutioilla. Forssan perunasalaatti kulkee mainiosti mukana piknikille tai eväsretkelle alkuperäispakkauksessaan. Kannattaa kuitenkin huomioida, että perunasalaatti ei säily lämpimässä useita tunteja, vaan se tulee säilyttää jääkaapissa kuten muutkin majoneesipohjaiset salaatit.",
+     "language": "fi"
+    },
+    {
+     "value": "Denna fylliga potatissallad är en matig sallad som passar i såväl vardagen som vid fester. Potatissallad serveras traditionellt på festbordet på valborg och nyår. Den är även ett utmärkt tillbehör intill grillmaten. Forssan Potatissallad är gjord på färskmajonnäs, potatis, smakrik inlagd gurka, färsk gurka och lök. Potatissallad passar också som matigt pålägg på bröd eller till exempel i en smörgåstårta. Du kan ändra potatissalladen efter egen smak med färska örter, rökt fisk, skinka eller till exempel med tärnad ost. Forssan potatissallad går utmärkt att ta med till picknicken i sin originalförpackning. Observera dock att potatissalladen inte håller i värme i flera timmar utan måste förvaras i kylskåp, liksom andra majonnäsbaserade sallader.",
+     "language": "sv"
+    }
+   ],
+   "keyIngredients": [
+    {
+     "value": "potato 56 % (Finland), mayonnaise (rapeseed oil, water, vinager, EGG YOLK, sugar, modified corn starch, iodised salt, preservative (potassium sorbate, sodium benzoate), maltodextrin, spices (MUSTARD SEED, white pepper)), cucumber, pickled cucumber (cucumber, flavors (incl. MUSTARD SEED), sweetener saccharin), onion",
+     "language": "en"
+    },
+    {
+     "value": "peruna 56 % (Suomi), majoneesi (rypsiöljy, vesi, etikka, KANANMUNANKELTUAINEN, sokeri, muunnettu maissitärkkelys, jodioitu suola, säilöntäaineet (kaliumsorbaatti, natriumbentsoaatti), maltodekstriini, mausteet (SINAPINSIEMEN, valkopippuri)), kurkku, säilykekurkku (kurkku, aromit (mm. SINAPINSIEMEN), makeutusaine sakariini), sipuli",
+     "language": "fi"
+    },
+    {
+     "value": "potatis 56 % (Finland), majonnäs (rypsolja, vatten, ättika, ÄGGULA, socker, modifierad majsstärkelse, joderat salt, konserveringsmedel (kaliumsorbat, natriumbensoat), maltodextrin, kryddor (SENAPSFRÖN, vitpeppar)), gurka, konserverad gurka (gurka, aromer (bl.a. SENAPSFRÖN), sötningsmedel sackarin), lök",
+     "language": "sv"
+    }
+   ],
+   "storageInstructions": [
+    {
+     "value": "Storage temperature under +6 °C",
+     "language": "en"
+    },
+    {
+     "value": "Säilytys alle +6 °C",
+     "language": "fi"
+    },
+    {
+     "value": "Förvaring under +6 °C",
+     "language": "sv"
+    }
+   ],
+   "preparationInstructions": [],
+   "disposalInformations": [
+    {
+     "value": "Sorted as plastic.",
+     "language": "en"
+    },
+    {
+     "value": "Muovi ei kuulu luontoon. Laita pakkaus muovinkeräykseen.",
+     "language": "fi"
+    },
+    {
+     "value": "Sorteras som plast.",
+     "language": "sv"
+    }
+   ],
+   "usageInstructions": [],
+   "classifications": [
+    {
+     "type": "DECIMAL",
+     "name": "composition",
+     "values": []
+    },
+    {
+     "type": "DECIMAL",
+     "name": "gda",
+     "values": [
+      {
+       "id": "CHOAVL",
+       "value": 13.0,
+       "unit": "GRM"
+      },
+      {
+       "id": "ENER-E14",
+       "value": 227.0,
+       "unit": "E14"
+      },
+      {
+       "id": "ENER-KJO",
+       "value": 941.0,
+       "unit": "KJO"
+      },
+      {
+       "id": "FASAT",
+       "value": 1.5,
+       "unit": "GRM"
+      },
+      {
+       "id": "FAT",
+       "value": 19.0,
+       "unit": "GRM"
+      },
+      {
+       "id": "FIBTG",
+       "value": 0.1,
+       "unit": "GRM"
+      },
+      {
+       "id": "LACS",
+       "value": 0.0,
+       "unit": "GRM"
+      },
+      {
+       "id": "PRO-",
+       "value": 1.4,
+       "unit": "GRM"
+      },
+      {
+       "id": "SALTEQ",
+       "value": 0.55,
+       "unit": "GRM"
+      },
+      {
+       "id": "SUGAR-",
+       "value": 2.7,
+       "unit": "GRM"
+      }
+     ]
+    },
+    {
+     "type": "DECIMAL",
+     "name": "mineral",
+     "values": []
+    },
+    {
+     "type": "DECIMAL",
+     "name": "nutritionFact",
+     "values": [
+      {
+       "id": "CHOAVL",
+       "value": 13.0,
+       "unit": "GRM"
+      },
+      {
+       "id": "ENER-E14",
+       "value": 227.0,
+       "unit": "E14"
+      },
+      {
+       "id": "ENER-KJO",
+       "value": 941.0,
+       "unit": "KJO"
+      },
+      {
+       "id": "FASAT",
+       "value": 1.5,
+       "unit": "GRM"
+      },
+      {
+       "id": "FAT",
+       "value": 19.0,
+       "unit": "GRM"
+      },
+      {
+       "id": "FIBTG",
+       "value": 0.1,
+       "unit": "GRM"
+      },
+      {
+       "id": "LACS",
+       "value": 0.0,
+       "unit": "GRM"
+      },
+      {
+       "id": "PRO-",
+       "value": 1.4,
+       "unit": "GRM"
+      },
+      {
+       "id": "SALTEQ",
+       "value": 0.55,
+       "unit": "GRM"
+      },
+      {
+       "id": "SUGAR-",
+       "value": 2.7,
+       "unit": "GRM"
+      }
+     ]
+    },
+    {
+     "type": "DECIMAL",
+     "name": "vitamin",
+     "values": []
+    },
+    {
+     "type": "ENUM",
+     "name": "packagingMarkedLabel",
+     "values": [
+      {
+       "id": "GOODS_FROM_FINLAND_BLUE_SWAN",
+       "synkkaId": "GOODS_FROM_FINLAND_BLUE_SWAN"
+      },
+      {
+       "id": "coolTemperature"
+      }
+     ]
+    },
+    {
+     "type": "ENUM",
+     "name": "allergen",
+     "values": [
+      {
+       "id": "AE",
+       "unit": "CONTAINS"
+      },
+      {
+       "id": "BM",
+       "unit": "CONTAINS"
+      }
+     ]
+    },
+    {
+     "type": "ENUM",
+     "name": "nonAllergen",
+     "values": [
+      {
+       "id": "AC",
+       "unit": "FREE_FROM"
+      },
+      {
+       "id": "AF",
+       "unit": "FREE_FROM"
+      },
+      {
+       "id": "AM",
+       "unit": "FREE_FROM"
+      },
+      {
+       "id": "AN",
+       "unit": "FREE_FROM"
+      },
+      {
+       "id": "AP",
+       "unit": "FREE_FROM"
+      },
+      {
+       "id": "AS",
+       "unit": "FREE_FROM"
+      },
+      {
+       "id": "AU",
+       "unit": "FREE_FROM"
+      },
+      {
+       "id": "AW",
+       "unit": "FREE_FROM"
+      },
+      {
+       "id": "AY",
+       "unit": "FREE_FROM"
+      },
+      {
+       "id": "BC",
+       "unit": "FREE_FROM"
+      },
+      {
+       "id": "GB",
+       "unit": "FREE_FROM"
+      },
+      {
+       "id": "GO",
+       "unit": "FREE_FROM"
+      },
+      {
+       "id": "GS",
+       "unit": "FREE_FROM"
+      },
+      {
+       "id": "ML",
+       "unit": "FREE_FROM"
+      },
+      {
+       "id": "NL",
+       "unit": "FREE_FROM"
+      },
+      {
+       "id": "NR",
+       "unit": "FREE_FROM"
+      },
+      {
+       "id": "SA",
+       "unit": "FREE_FROM"
+      },
+      {
+       "id": "SC",
+       "unit": "FREE_FROM"
+      },
+      {
+       "id": "SH",
+       "unit": "FREE_FROM"
+      },
+      {
+       "id": "ST",
+       "unit": "FREE_FROM"
+      },
+      {
+       "id": "SW",
+       "unit": "FREE_FROM"
+      },
+      {
+       "id": "UM",
+       "unit": "FREE_FROM"
+      },
+      {
+       "id": "UW",
+       "unit": "FREE_FROM"
+      }
+     ]
+    },
+    {
+     "type": "ENUM",
+     "name": "nutritionalClaim",
+     "values": [
+      {
+       "id": "FREE_FROM_GLUTEN",
+       "synkkaId": "GLUTEN",
+       "unit": "FREE_FROM"
+      },
+      {
+       "id": "FREE_FROM_LACTOSE",
+       "synkkaId": "LACTOSE",
+       "unit": "FREE_FROM"
+      },
+      {
+       "id": "VEGETARIAN",
+       "synkkaId": "VEGETARIAN",
+       "unit": "DIET"
+      }
+     ]
+    },
+    {
+     "type": "ENUM",
+     "name": "packaging",
+     "values": []
+    }
+   ],
+   "nutritionalContent": [
+    {
+     "id": "CHOAVL",
+     "value": 13.0,
+     "unit": "GRM",
+     "unitPrecision": "APPROXIMATELY",
+     "basisQuantity": 100.0,
+     "basisQuantityUnit": "GRM",
+     "servingSize": 100.0,
+     "servingSizeUnit": "GRM"
+    },
+    {
+     "id": "ENER-E14",
+     "value": 227.0,
+     "unit": "E14",
+     "unitPrecision": "APPROXIMATELY",
+     "basisQuantity": 100.0,
+     "basisQuantityUnit": "GRM",
+     "servingSize": 100.0,
+     "servingSizeUnit": "GRM"
+    },
+    {
+     "id": "ENER-KJO",
+     "value": 941.0,
+     "unit": "KJO",
+     "unitPrecision": "APPROXIMATELY",
+     "basisQuantity": 100.0,
+     "basisQuantityUnit": "GRM",
+     "servingSize": 100.0,
+     "servingSizeUnit": "GRM"
+    },
+    {
+     "id": "FASAT",
+     "value": 1.5,
+     "unit": "GRM",
+     "unitPrecision": "APPROXIMATELY",
+     "basisQuantity": 100.0,
+     "basisQuantityUnit": "GRM",
+     "servingSize": 100.0,
+     "servingSizeUnit": "GRM"
+    },
+    {
+     "id": "FAT",
+     "value": 19.0,
+     "unit": "GRM",
+     "unitPrecision": "APPROXIMATELY",
+     "basisQuantity": 100.0,
+     "basisQuantityUnit": "GRM",
+     "servingSize": 100.0,
+     "servingSizeUnit": "GRM"
+    },
+    {
+     "id": "FIBTG",
+     "value": 0.1,
+     "unit": "GRM",
+     "unitPrecision": "APPROXIMATELY",
+     "basisQuantity": 100.0,
+     "basisQuantityUnit": "GRM",
+     "servingSize": 100.0,
+     "servingSizeUnit": "GRM"
+    },
+    {
+     "id": "LACS",
+     "value": 0.0,
+     "unit": "GRM",
+     "unitPrecision": "APPROXIMATELY",
+     "basisQuantity": 100.0,
+     "basisQuantityUnit": "GRM",
+     "servingSize": 100.0,
+     "servingSizeUnit": "GRM"
+    },
+    {
+     "id": "PRO-",
+     "value": 1.4,
+     "unit": "GRM",
+     "unitPrecision": "APPROXIMATELY",
+     "basisQuantity": 100.0,
+     "basisQuantityUnit": "GRM",
+     "servingSize": 100.0,
+     "servingSizeUnit": "GRM"
+    },
+    {
+     "id": "SALTEQ",
+     "value": 0.55,
+     "unit": "GRM",
+     "unitPrecision": "APPROXIMATELY",
+     "basisQuantity": 100.0,
+     "basisQuantityUnit": "GRM",
+     "servingSize": 100.0,
+     "servingSizeUnit": "GRM"
+    },
+    {
+     "id": "SUGAR-",
+     "value": 2.7,
+     "unit": "GRM",
+     "unitPrecision": "APPROXIMATELY",
+     "basisQuantity": 100.0,
+     "basisQuantityUnit": "GRM",
+     "servingSize": 100.0,
+     "servingSizeUnit": "GRM"
+    }
+   ],
+   "ingredients": [
+    {
+     "sequence": 1,
+     "percentage": 56.0,
+     "names": [
+      {
+       "value": "potato",
+       "language": "en"
+      },
+      {
+       "value": "Peruna",
+       "language": "fi"
+      },
+      {
+       "value": "potatis",
+       "language": "sv"
+      }
+     ],
+     "origins": [
+      {
+       "type": "FARMING",
+       "country": "246"
+      }
+     ]
+    }
+   ],
+   "medias": [
+    {
+     "id": 52633,
+     "primary": true
+    }
+   ],
+   "fishingReports": [],
+   "safetyData": [],
+   "brand": "Forssan",
+   "variableUnit": false,
+   "vatCode": "MEDIUM",
+   "producers": [
+    {
+     "id": "6407809999995",
+     "name": "Atria Suomi Oy"
+    }
+   ],
+   "unitConversions": [
+    {
+     "synkkaPackagingType": "BASE_UNIT_OR_EACH",
+     "width": {
+      "unit": "MMT",
+      "value": 166.0
+     },
+     "length": {
+      "unit": "MMT",
+      "value": 50.0
+     },
+     "height": {
+      "unit": "MMT",
+      "value": 101.0
+     },
+     "volume": {
+      "unit": "KGM",
+      "value": 0.4
+     },
+     "netWeight": {
+      "unit": "KGM",
+      "value": 0.4
+     },
+     "grossWeight": {
+      "unit": "GRM",
+      "value": 423.0
+     }
+    }
+   ],
+   "minTemperature": 5.0,
+   "maxTemperature": 8.0
+  },
+  "units": [
+   {
+    "unitId": "PAL",
+    "gtin": "6409460046902",
+    "sizeInBaseUnits": 50.0
+   },
+   {
+    "unitId": "KI",
+    "gtin": "6409460046896",
+    "sizeInBaseUnits": 5.0
+   },
+   {
+    "unitId": "RAS",
+    "gtin": "6409460002724",
+    "sizeInBaseUnits": 1.0
+   }
+  ],
+  "deposits": []
+ },
+ {
+  "id": "460025",
+  "salesUnitGtin": "2300120400000",
+  "salesUnit": "KG",
+  "baseUnit": "KG",
+  "category": "17402",
+  "allowedLotSize": 0.01,
+  "deleted": false,
+  "temperatureCondition": 5,
+  "vendorName": "SCAN - IBERICA OY",
+  "countryOfOrigin": "nl",
+  "synkkaData": {
+   "names": [
+    {
+     "value": "COURGETTES GREEN NL/ES 1.CL",
+     "language": "en"
+    },
+    {
+     "value": "KESÄKURPITSA VIHREÄ NL/ES 1.LK",
+     "language": "fi"
+    }
+   ],
+   "materialAdditionalDescriptions": [],
+   "marketingTexts": [],
+   "keyIngredients": [],
+   "classifications": [
+    {
+     "type": "ENUM",
+     "name": "packagingMarkedLabel",
+     "values": []
+    },
+    {
+     "type": "ENUM",
+     "name": "allergen",
+     "values": []
+    },
+    {
+     "type": "ENUM",
+     "name": "nonAllergen",
+     "values": []
+    },
+    {
+     "type": "ENUM",
+     "name": "nutritionalClaim",
+     "values": []
+    },
+    {
+     "type": "ENUM",
+     "name": "packaging",
+     "values": []
+    }
+   ],
+   "nutritionalContent": [],
+   "medias": []
+  },
+  "units": [
+   {
+    "unitId": "KG",
+    "gtin": "2300120400000",
+    "sizeInBaseUnits": 1.0
+   },
+   {
+    "unitId": "KI",
+    "sizeInBaseUnits": 5.0
+   }
+  ],
+  "deposits": [],
+  "substitutions": [
+   {
+    "product": "460025",
+    "substituteProduct": "460150"
+   }
+  ]
+ }
+]
