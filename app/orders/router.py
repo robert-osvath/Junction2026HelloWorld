@@ -29,8 +29,8 @@ def reject(order_id: str) -> Order:
 
 
 @router.get("/audit")
-def audit(order_id: str | None = None) -> list[AuditEvent]:
-    return get_store().events(order_id)
+def audit(order_id: str | None = None, orderId: str | None = None) -> list[AuditEvent]:  # noqa: N803 (Notion spelling)
+    return get_store().events(order_id if order_id is not None else orderId)
 
 
 @router.get("/audit/verify")

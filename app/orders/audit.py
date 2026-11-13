@@ -12,6 +12,7 @@ import pymysql
 from contracts import AuditEvent, AuditVerify
 
 GENESIS = "sha256:" + "0" * 64
+ACTORS = {"buyer-agent", "juror:tier0", "juror:spec", "juror:delivery", "juror:cost", "juror:tier2", "human", "aimo"}
 
 
 def _sha(obj) -> str:
@@ -29,6 +30,8 @@ def event_hash(e: AuditEvent) -> str:
 
 
 def make_event(prev_hash: str, *, order_id, actor, action, payload, human_summary) -> AuditEvent:
+    if actor not in ACTORS:
+        raise ValueError(f"unknown audit actor {actor!r}; one of {sorted(ACTORS)}")
     e = AuditEvent(id=f"evt-{uuid.uuid4().hex[:12]}", ts=datetime.now(UTC), order_id=order_id, actor=actor,
                    action=action, payload_hash=_sha(payload), prev_hash=prev_hash, hash="",
                    human_summary=human_summary)
@@ -36,7 +39,7 @@ def make_event(prev_hash: str, *, order_id, actor, action, payload, human_summar
 
 
 def verify(events: list[AuditEvent], payloads: dict[str, object]) -> AuditVerify:
-    """events in chain order. shortcut: deleting the newest events is not detected here; system versioning shows it."""
+    """events in chain order. Deleting the newest events isn't visible here; MariaDBStore.verify checks history."""
     prev = GENESIS
     for i, e in enumerate(events):
         if e.prev_hash != prev or e.hash != event_hash(e) or e.payload_hash != _sha(payloads.get(e.id)):
@@ -53,7 +56,7 @@ class MemoryStore:
     def append(self, **kw) -> AuditEvent:
         with self._lock:
             e = make_event(self._rows[-1][0].hash if self._rows else GENESIS, **kw)
-            self._rows.append((e, kw["payload"]))
+            self._rows.append((e, json.loads(json.dumps(kw["payload"], default=str))))  # copy, same as MariaDB
             return e
 
     def events(self, order_id: str | None = None) -> list[AuditEvent]:
@@ -97,22 +100,28 @@ class MariaDBStore:
         return pymysql.connect(**self._args)
 
     def append(self, **kw) -> AuditEvent:
+        # one named lock serialises appenders; FOR UPDATE gap locks deadlocked under concurrent appends
         with self.conn() as c, c.cursor() as cur:
-            c.begin()
-            cur.execute("SELECT hash FROM audit_events ORDER BY seq DESC LIMIT 1 FOR UPDATE")
-            row = cur.fetchone()
-            e = make_event(row[0] if row else GENESIS, **kw)
-            cur.execute(f"INSERT INTO audit_events ({COLS}) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                        (e.id, e.ts.astimezone(UTC).replace(tzinfo=None), e.order_id, e.actor, e.action,
-                         json.dumps(kw["payload"], default=str), e.payload_hash, e.prev_hash, e.hash,
-                         e.human_summary))
-            c.commit()
+            cur.execute("SELECT GET_LOCK('audit_append', 10)")
+            if cur.fetchone()[0] != 1:
+                raise TimeoutError("audit append lock not acquired in 10 s")
+            try:
+                cur.execute("SELECT hash FROM audit_events ORDER BY seq DESC LIMIT 1")
+                row = cur.fetchone()
+                e = make_event(row[0] if row else GENESIS, **kw)
+                cur.execute(f"INSERT INTO audit_events ({COLS}) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                            (e.id, e.ts.astimezone(UTC).replace(tzinfo=None), e.order_id, e.actor, e.action,
+                             json.dumps(kw["payload"], default=str), e.payload_hash, e.prev_hash, e.hash,
+                             e.human_summary))
+            finally:
+                cur.execute("SELECT RELEASE_LOCK('audit_append')")
             return e
 
     def _rows(self, order_id: str | None = None):
-        sql = f"SELECT {COLS} FROM audit_events" + (" WHERE order_id=%s" if order_id else "") + " ORDER BY seq"
+        where = order_id is not None
+        sql = f"SELECT {COLS} FROM audit_events" + (" WHERE order_id=%s" if where else "") + " ORDER BY seq"
         with self.conn() as c, c.cursor() as cur:
-            cur.execute(sql, (order_id,) if order_id else ())
+            cur.execute(sql, (order_id,) if where else ())
             for r in cur.fetchall():
                 yield AuditEvent(id=r[0], ts=r[1].replace(tzinfo=UTC), order_id=r[2], actor=r[3], action=r[4],
                                  payload_hash=r[6], prev_hash=r[7], hash=r[8], human_summary=r[9]), json.loads(r[5])
@@ -122,19 +131,29 @@ class MariaDBStore:
 
     def verify(self) -> AuditVerify:
         rows = list(self._rows())
-        return verify([e for e, _ in rows], {e.id: p for e, p in rows})
+        r = verify([e for e, _ in rows], {e.id: p for e, p in rows})
+        if not r.ok:
+            return r
+        with self.conn() as c, c.cursor() as cur:  # any event ever written but no longer current = deleted
+            cur.execute("SELECT id FROM audit_events FOR SYSTEM_TIME ALL WHERE id NOT IN "
+                        "(SELECT id FROM audit_events) ORDER BY ROW_START LIMIT 1")
+            gone = cur.fetchone()
+        return AuditVerify(ok=False, checked=r.checked, broken_at=gone[0]) if gone else r
 
     def reset_for_tests(self):
         assert self._args["database"].endswith("_test"), "refusing to wipe a non-test database"
-        with self.conn() as c, c.cursor() as cur:
-            cur.execute("DELETE FROM audit_events")
+        with self.conn() as c, c.cursor() as cur:  # drop + recreate: DELETE would leave history = "tampered"
+            cur.execute("DROP TABLE IF EXISTS audit_events")
+            cur.execute(SCHEMA)
 
 
 _store = None
+_store_lock = threading.Lock()
 
 
 def get_store():
     global _store
-    if _store is None:
-        _store = MariaDBStore(os.environ["DB_URL"]) if os.environ.get("DB_URL") else MemoryStore()
-    return _store
+    with _store_lock:
+        if _store is None:
+            _store = MariaDBStore(os.environ["DB_URL"]) if os.environ.get("DB_URL") else MemoryStore()
+        return _store
