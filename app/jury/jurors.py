@@ -80,7 +80,7 @@ def aggregate_verdicts(
             return JuryResult(verdicts=verdicts, decision="substitutes", chosen_product_id=None)
         return JuryResult(verdicts=verdicts, decision="reject", chosen_product_id=None)
 
-    if "escalate" in decisions or any(v.confidence < 0.80 for v in verdicts):
+    if "escalate" in decisions or any(v.confidence < 0.75 for v in verdicts):
         return JuryResult(verdicts=verdicts, decision="human_approval", chosen_product_id=chosen_id)
 
     return JuryResult(verdicts=verdicts, decision="auto_order", chosen_product_id=chosen_id)
@@ -304,7 +304,7 @@ def evaluate_with_gemini_decision(
 
     if live_api and tier0.decision != "reject":
         api_key = _get_env_key("GEMINI_API_KEY", "GOOGLE_API_KEY")
-        if api_key.startswith("AIza"):
+        if api_key and not api_key.startswith("sk_"):
             try:
                 from google import genai
 
@@ -320,9 +320,18 @@ def evaluate_with_gemini_decision(
                                 "and packaging suitability for the buyer."
                             ),
                             "criteria": {
-                                "approve": "Exact match or functionally equivalent substitute with compatible packaging and verified claims.",
-                                "escalate": "Fuzzy substitute (packaging format change, plant-based swap, or missing allergen declaration) needing human sign-off.",
-                                "reject": "Wrong product, violates required claims or banned allergens, or ruins recipe.",
+                                "approve": (
+                                    "Exact match or functionally equivalent dairy/foodservice product "
+                                    "(including Finnish names like kevytmaitojuoma = semi-skimmed milk, "
+                                    "ruokakerma = cooking cream, and Novobox bulk bags unless extra_constraints forbid them) "
+                                    "with verified claims."
+                                ),
+                                "escalate": (
+                                    "Fuzzy substitute (packaging format conflicts with explicit extra_constraints, "
+                                    "plant-based oat swap for dairy intent, skim swap for whole milk, or missing allergen declaration) "
+                                    "needing human sign-off."
+                                ),
+                                "reject": "Wrong product, violates required claims or banned allergens, or ruins strict_recipe.",
                             },
                         },
                         "delivery": {
@@ -345,27 +354,29 @@ def evaluate_with_gemini_decision(
                         },
                     },
                 )
+                if getattr(resp, "usage", None) and getattr(resp.usage, "total_input_tokens", None):
+                    est_input_tokens = int(resp.usage.total_input_tokens)
                 ans_spec = resp.answers.get("spec")
                 ans_deliv = resp.answers.get("delivery")
                 ans_cost = resp.answers.get("cost")
                 if ans_spec and getattr(ans_spec, "choice", None) in ("approve", "escalate", "reject"):
                     h_spec = h_spec.model_copy(
                         update={
-                            "decision": ans_spec.choice,
+                            "decision": _merge_decisions([h_spec.decision, ans_spec.choice]),
                             "confidence": round(float(getattr(ans_spec, "confidence", h_spec.confidence)), 3),
                         }
                     )
                 if ans_deliv and getattr(ans_deliv, "choice", None) in ("approve", "escalate", "reject"):
                     h_deliv = h_deliv.model_copy(
                         update={
-                            "decision": ans_deliv.choice,
+                            "decision": _merge_decisions([h_deliv.decision, ans_deliv.choice]),
                             "confidence": round(float(getattr(ans_deliv, "confidence", h_deliv.confidence)), 3),
                         }
                     )
                 if ans_cost and getattr(ans_cost, "choice", None) in ("approve", "escalate", "reject"):
                     h_cost = h_cost.model_copy(
                         update={
-                            "decision": ans_cost.choice,
+                            "decision": _merge_decisions([h_cost.decision, ans_cost.choice]),
                             "confidence": round(float(getattr(ans_cost, "confidence", h_cost.confidence)), 3),
                         }
                     )
@@ -435,7 +446,7 @@ def evaluate_with_generative_llm(
         text = ""
         if model_name.startswith("gemini"):
             api_key = _get_env_key("GEMINI_API_KEY", "GOOGLE_API_KEY")
-            if api_key.startswith("AIza"):
+            if api_key and not api_key.startswith("sk_"):
                 try:
                     from google import genai
 
@@ -447,6 +458,11 @@ def evaluate_with_generative_llm(
                         generation_config={"temperature": 0.0},
                     )
                     text = interaction.output_text or ""
+                    if getattr(interaction, "usage", None):
+                        if getattr(interaction.usage, "total_input_tokens", None):
+                            est_input_tokens = int(interaction.usage.total_input_tokens)
+                        if getattr(interaction.usage, "total_output_tokens", None):
+                            est_output_tokens = int(interaction.usage.total_output_tokens)
                 except Exception as exc:
                     log.warning("%s live call failed (%s); using fallback", model_name, exc)
         elif model_name.startswith("claude"):

@@ -17,7 +17,7 @@ def _should_use_live_api() -> bool:
     if os.getenv("PYTEST_CURRENT_TEST"):
         return False
     key = _get_env_key("GEMINI_API_KEY", "GOOGLE_API_KEY")
-    return key.startswith("AIza")
+    return bool(key and not key.startswith("sk_"))
 
 
 @router.post("/jury/evaluate")
