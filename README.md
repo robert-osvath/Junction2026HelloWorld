@@ -41,8 +41,9 @@ Feature branch per change (`<lane>/<ticket>-<slug>` or `<lane>/chore-<slug>`), P
 
 ## Deploy (T15)
 - **API on Modal:** `uv run modal setup` once, then create the secret
-  `uv run modal secret create aimo-api VALIO_API_KEY=... DB_URL='mysql://user:pass@host:port/aimo?ssl=true' CORS_ORIGINS=https://<vercel-app>.vercel.app`
-  and `uv run modal deploy modal_app.py`. Pushes to `main` deploy automatically once the repo secrets
+  `uv run modal secret create aimo-api VALIO_API_KEY=... DB_URL='mysql://user:pass@host:port/aimo?ssl=true' CORS_ORIGINS=https://<vercel-app>.vercel.app GEMINI_API_KEY=...`
+  then `uv run modal run modal_app.py::build_catalog` (data + catalog + Gemini embeddings into the
+  `aimo-catalog` volume; incremental) and `uv run modal deploy modal_app.py`. Pushes to `main` deploy automatically once the repo secrets
   `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET` exist (`.github/workflows/deploy.yml`).
 - **Database:** MariaDB Cloud. Use an app user without `DELETE HISTORY`/`DROP` (see `db/migrations/000_init.sql`);
   tables are created by the app on startup.
