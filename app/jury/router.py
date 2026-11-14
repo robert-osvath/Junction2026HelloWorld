@@ -23,12 +23,14 @@ def _should_use_live_api() -> bool:
 @router.post("/jury/evaluate")
 def evaluate(req: JuryRequest) -> JuryResult:
     catalog_items = resolve_catalog_items([o.product_id for o in req.offers])
+    use_live = _should_use_live_api()
     metrics = evaluate_with_gemini_decision(
         mandate=req.mandate,
         need=req.need,
         offers=req.offers,
         catalog_items=catalog_items,
-        live_api=_should_use_live_api(),
+        live_api=use_live,
+        run_tier2_panel=use_live,
     )
     return metrics.result
 

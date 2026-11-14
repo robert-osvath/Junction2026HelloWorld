@@ -36,6 +36,7 @@ from contracts.models import CatalogItem, Mandate, Need, Offer
 
 CANDIDATE_MODELS = [
     "gemini-decision-1",
+    "gemma-4-26b-a4b-it",
     "gemini-3.5-flash-lite",
     "claude-haiku-4-5",
     "claude-sonnet-4-5",
@@ -44,6 +45,7 @@ CANDIDATE_MODELS = [
 # Reference production latency profiles (ms) when running in deterministic CI mode
 REFERENCE_LATENCY_MS: dict[str, dict[str, float]] = {
     "gemini-decision-1": {"tier0_only": 1.2, "with_juror": 185.0},
+    "gemma-4-26b-a4b-it": {"tier0_only": 1.2, "with_juror": 380.0},
     "gemini-3.5-flash-lite": {"tier0_only": 1.2, "with_juror": 440.0},
     "claude-haiku-4-5": {"tier0_only": 1.2, "with_juror": 690.0},
     "claude-sonnet-4-5": {"tier0_only": 1.2, "with_juror": 1680.0},
@@ -243,8 +245,9 @@ def render_markdown_report(summaries: dict[str, ModelSummary]) -> str:
     ]
 
     arch_labels = {
-        "gemini-decision-1": "Tier 0 Gates + Calibrated Decision API (`0` output tokens)",
-        "gemini-3.5-flash-lite": "Tier 0 Gates + Fast Generative JSON",
+        "gemini-decision-1": "Tier 0 Gates + Tier 1 Calibrated Decision API (`0` output tokens)",
+        "gemma-4-26b-a4b-it": "Tier 0 Gates + Tier 2 Open-Weight Gemma 4 MoE (`4B` active params)",
+        "gemini-3.5-flash-lite": "Tier 0 Gates + Tier 2 Fast Proprietary Small LLM",
         "claude-haiku-4-5": "Tier 0 Gates + Fast Generative JSON",
         "claude-sonnet-4-5": "Tier 0 Gates + Frontier Baseline JSON",
     }
@@ -276,8 +279,12 @@ def render_markdown_report(summaries: dict[str, ModelSummary]) -> str:
             "",
             "## Case-by-Case Results (`C01`–`C20`)",
             "",
-            "| Case ID | Category | Description | Safety Critical | Expected Decision | `gemini-decision-1` | `gemini-3.5-flash-lite` | `claude-haiku-4-5` | `claude-sonnet-4-5` |",
-            "| :--- | :--- | :--- | :---: | :--- | :--- | :--- | :--- | :--- |",
+            "| Case ID | Category | Description | Safety Critical | Expected Decision | "
+            + " | ".join(f"`{m}`" for m in summaries)
+            + " |",
+            "| :--- | :--- | :--- | :---: | :--- | "
+            + " | ".join(":---" for _ in summaries)
+            + " |",
         ]
     )
 
