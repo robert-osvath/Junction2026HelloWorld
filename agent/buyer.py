@@ -48,12 +48,22 @@ class BuyerResult:
     order: Order | None = None
 
 
+def _parse_quantity(text: str) -> float:
+    """"1,000" / "1,000.5" use commas as thousands separators; any other comma is a decimal comma
+    (Finnish style: "1,5" = 1.5, not 15)."""
+    if re.fullmatch(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?", text):
+        return float(text.replace(",", ""))
+    if text.count(",") + text.count(".") > 1:
+        raise ValueError(f"Ambiguous quantity '{text}'; write it like '1000', '1,000' or '1,5'.")
+    return float(text.replace(",", "."))
+
+
 def parse_need(request: str, *, today: date | None = None) -> Need:
     """Parse the concise natural-language order requests used in the demo."""
-    match = re.search(r"(?P<quantity>[\d,]+(?:\.\d+)?)\s*(?P<unit>L|kg|pcs)\b", request, re.IGNORECASE)
+    match = re.search(r"(?P<quantity>\d+(?:[.,]\d+)*)\s*(?P<unit>L|kg|pcs)\b", request, re.IGNORECASE)
     if not match:
         raise ValueError("Request must include a quantity and unit, for example '1,000 L milk'.")
-    quantity = float(match.group("quantity").replace(",", ""))
+    quantity = _parse_quantity(match.group("quantity"))
     raw_unit = match.group("unit")
     unit = "L" if raw_unit.lower() == "l" else "kg" if raw_unit.lower() == "kg" else "pcs"
     reference = today or date.today()

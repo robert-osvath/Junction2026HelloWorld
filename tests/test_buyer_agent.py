@@ -131,3 +131,16 @@ def test_select_offer_stays_within_budget_and_dict_results_are_not_unwrapped():
     assert select_offer([_offer("a", 3000), _offer("b", 2800)], budget_eur=2500).product_id == "b"
     assert decode_tool_result("t", NS(structuredContent={"result": {"id": "x"}}, content=[])) == {"result": {"id": "x"}}
     assert decode_tool_result("t", NS(structuredContent={"result": []}, content=[])) == []
+
+
+def test_quantity_parsing_handles_thousands_and_decimal_commas():
+    from agent.buyer import parse_need
+    q = lambda s: parse_need(f"{s} lactose-free milk by Monday", today=date(2026, 11, 14)).quantity
+    assert q("1,000 L") == 1000 and q("1,000.5 L") == 1000.5 and q("1000 L") == 1000
+    assert q("1,5 L") == 1.5 and q("2,25 kg") == 2.25 and q("1.5 L") == 1.5 and q("12 pcs") == 12
+    try:
+        parse_need("1,000,5 L milk")
+    except ValueError as exc:
+        assert "Ambiguous" in str(exc)
+    else:
+        raise AssertionError("expected an ambiguous-quantity error")
