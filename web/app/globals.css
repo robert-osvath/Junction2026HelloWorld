@@ -131,7 +131,7 @@ ul.bul { margin: 0; padding-left: 16px; }
 .panel label { display: block; margin-bottom: 6px; font-size: 13px; font-weight: 700; color: #455e55; }
 textarea, .field input { display: block; width: 100%; max-width: 560px; padding: 10px 12px; border: 1px solid #ced6d1; border-radius: 10px; background: #fff; color: var(--ink); }
 textarea { min-height: 82px; margin-bottom: 12px; resize: vertical; }
-:is(textarea, .field input):focus { border-color: var(--green-2); box-shadow: 0 0 0 3px rgba(29, 87, 71, 0.1); outline: none; }
+:is(textarea, .field input):focus { border-color: var(--green-2); }
 .r-approve { color: #4a6114; } .r-escalate { color: #93452f; } .r-reject { color: var(--danger); }
 .mark { font-weight: 900; }
 .note { margin: 6px 0 0; padding: 4px 8px; border-radius: 6px; background: var(--peach-soft); color: #93452f; font-size: 12.5px; }
@@ -173,8 +173,9 @@ code { font-size: 12px; word-break: break-all; }
 }
 @media (max-width: 760px) {
   .app-shell { display: block; }
-  .sidebar { transform: translateX(-105%); transition: transform 0.25s ease; box-shadow: 15px 0 50px rgba(0, 0, 0, 0.15); }
-  .sidebar.open { transform: none; }
+  /* visibility keeps the closed menu out of the tab order and the accessibility tree */
+  .sidebar { transform: translateX(-105%); visibility: hidden; transition: transform 0.25s ease, visibility 0s 0.25s; box-shadow: 15px 0 50px rgba(0, 0, 0, 0.15); }
+  .sidebar.open { transform: none; visibility: visible; transition: transform 0.25s ease; }
   .mobile-close { display: grid; position: absolute; right: 10px; top: 14px; color: #fff; }
   .backdrop.mobile { display: block; z-index: 15; }
   .menu-button { display: grid; }

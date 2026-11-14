@@ -51,6 +51,13 @@ export default function Shell({ children }: { children: ReactNode }) {
   const { buyer } = useSavedRules();
 
   useEffect(() => {
+    if (!open) return;
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("keydown", esc);
+    return () => document.removeEventListener("keydown", esc);
+  }, [open]);
+
+  useEffect(() => {
     let live = true;
     fetch("/auth/status", { cache: "no-store" }).then((r) => r.json()).then((s) => live && setGate(Boolean(s?.gate))).catch(() => null);
     const load = () => api<Order[]>("/orders").then((o) => live && setOrders(o)).catch(() => null);
@@ -60,7 +67,7 @@ export default function Shell({ children }: { children: ReactNode }) {
   }, []);
 
   const counts = { pending_approval: 0, placed: 0, substitutes_proposed: 0, rejected: 0 } as Record<Status, number>;
-  for (const o of orders) counts[o.status] += 1;
+  for (const o of orders) if (o.status in counts) counts[o.status] += 1;
   const pending = counts.pending_approval;
   const close = () => setOpen(false);
   const lock = async () => {
@@ -71,7 +78,7 @@ export default function Shell({ children }: { children: ReactNode }) {
   return (
     <div className="app-shell">
       <a className="skip-link" href="#content">Skip to content</a>
-      <aside className={`sidebar ${open ? "open" : ""}`}>
+      <aside id="sidebar" className={`sidebar ${open ? "open" : ""}`}>
         <Link className="brand" href="/" onClick={close}>
           <span className="brand-mark" aria-hidden="true"><span /><span /><span /></span>
           <span><strong>VIMO</strong><small>Purchasing workspace</small></span>
@@ -103,7 +110,7 @@ export default function Shell({ children }: { children: ReactNode }) {
 
       <div className="app-main">
         <header className="app-header">
-          <button className="menu-button icon-button" onClick={() => setOpen(true)} aria-label="Open menu"><Icon name="menu" /></button>
+          <button className="menu-button icon-button" onClick={() => setOpen(true)} aria-label="Open menu" aria-expanded={open} aria-controls="sidebar"><Icon name="menu" /></button>
           <div className="breadcrumb">
             <span>Vimo</span><Icon name="chevron" size={14} />
             <Suspense fallback={<Crumb path={null} />}><ActiveCrumb /></Suspense>
@@ -118,7 +125,7 @@ export default function Shell({ children }: { children: ReactNode }) {
         </header>
         <main id="content" className="content">{children}</main>
       </div>
-      {open && <button className="backdrop mobile" onClick={close} aria-label="Close menu overlay" />}
+      {open && <div className="backdrop mobile" onClick={close} aria-hidden="true" />}
     </div>
   );
 }

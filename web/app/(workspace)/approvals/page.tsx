@@ -13,7 +13,9 @@ export default function Page() {
 function Inbox() {
   const router = useRouter();
   const initial = useSearchParams().get("status") as Status | null;  // deep links, e.g. from the cockpit's metric cards
-  const [tab, setTab] = useState<Status>(initial && Object.hasOwn(LABEL, initial) ? initial : "pending_approval");
+  // the URL is the tab state, so the bell link switches tabs even when the inbox is already open
+  const tab: Status = initial && Object.hasOwn(LABEL, initial) ? initial : "pending_approval";
+  const setTab = (t: Status) => router.replace(`/approvals?status=${t}`, { scroll: false });
   const [orders, setOrders] = useState<Order[] | null>(null);
   const [err, setErr] = useState("");
 
