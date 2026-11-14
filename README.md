@@ -19,6 +19,10 @@ docker compose -f db/docker-compose.yml up -d   # MariaDB 11.4 on :3306 (aimo/ai
 # DB_URL in .env -> audit log in MariaDB (system-versioned); unset -> in-memory. DB_URL_TEST runs the MariaDB audit test.
 ```
 
+### Vector search (T2)
+`/catalog/search` blends Gemini embeddings (stored in `product_embeddings`) with full-text search when the DB has embeddings and `GEMINI_API_KEY` is set; otherwise it is text-only. Build/refresh vectors with `uv run python -m app.catalog.embed` (resumable, only changed products). Common queries are pre-embedded in the background at startup (`app/catalog/warm.py`).
+Latency: < 200 ms for cached/pre-warmed queries; a new query pays one Gemini call (~0.3-0.5 s) and falls back to text-only if it exceeds `SEARCH_EMBED_TIMEOUT_S` (default 0.5).
+
 ## Approval inbox (T14)
 ```bash
 uv run uvicorn app.main:app --port 8000   # API (CORS origins: CORS_ORIGINS, default http://localhost:3000)

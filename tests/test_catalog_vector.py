@@ -41,6 +41,7 @@ def conn(tmp_path, monkeypatch):
 
 @pytest.fixture
 def with_vectors(conn, monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "fake")
     """Eila on axis 0, an oat drink with no text overlap with the query on axis 5."""
     conn.execute("INSERT INTO products (id, name_en, sales_unit, has_allergen_data) "
                  "VALUES ('oat', 'Oat barista', 'KI', 0)")
@@ -48,7 +49,7 @@ def with_vectors(conn, monkeypatch):
     store.rebuild_fts(conn)
     put(conn, "463038", axis(0))
     put(conn, "oat", axis(5))
-    monkeypatch.setattr(embeddings, "embed_query", lambda t: axis(5, 0.1))
+    monkeypatch.setattr(embeddings, "embed_query", lambda t, *a, **k: axis(5, 0.1))
     return conn
 
 
@@ -72,8 +73,12 @@ def test_fallback_identical_to_text_only(with_vectors, monkeypatch, failure):
     put(with_vectors, "463038", axis(0))
     put(with_vectors, "oat", axis(5))
     monkeypatch.setenv("SEARCH_EMBED_TIMEOUT_S", "0.05")
+    if failure == "nokey":
+        monkeypatch.delenv("GEMINI_API_KEY")
+        monkeypatch.setattr(embeddings, "_embedder", None)
+        monkeypatch.setattr(embeddings, "_dotenv_loaded", True)
 
-    def boom(t):
+    def boom(t, *a, **k):
         if failure == "error":
             raise embeddings.EmbeddingError("down")
         if failure == "timeout":
@@ -171,6 +176,68 @@ def test_replace_catalog_keeps_embeddings(conn):
     put(conn, "463038", axis(0))
     loader.load(conn, json.loads((FIX / "sample_products.json").read_text()), {}, {})
     assert store.embedding_count(conn, embeddings.MODEL) == 1
+
+
+def test_malformed_blob_skipped_and_never_crashes_search(with_vectors):
+    with_vectors.execute("INSERT INTO product_embeddings VALUES ('460000', ?, 'h', ?)",
+                         (embeddings.MODEL, b"x" * 1024))
+    with_vectors.commit()
+    m = vectors.get_matrix(with_vectors)
+    assert "460000" not in m.ids and "oat" in m.ids
+    assert ids(search(with_vectors, "something to whiten coffee"))[0] == "oat"
+
+
+def test_only_malformed_blobs_is_text_only(conn, monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "fake")
+    baseline = ids(search(conn, "maito"))
+    conn.execute("INSERT INTO product_embeddings VALUES ('463038', ?, 'h', ?)", (embeddings.MODEL, b"x" * 1024))
+    conn.commit()
+    assert ids(search(conn, "maito")) == baseline
+
+
+def test_vector_side_exception_falls_back(with_vectors, monkeypatch):
+    def boom(c):
+        raise ValueError("boom")
+    monkeypatch.setattr(vectors, "get_matrix", boom)
+    assert ids(search(with_vectors, "maito")) == ["463038"]
+
+
+def _no_key(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setattr(embeddings, "_embedder", None)
+    monkeypatch.setattr(embeddings, "_dotenv_loaded", True)
+
+
+def test_no_key_does_not_submit_threads(with_vectors, monkeypatch):
+    _no_key(monkeypatch)
+    monkeypatch.setattr(embeddings._pool, "submit", lambda *a, **k: pytest.fail("submitted"))
+    assert embeddings.try_embed_query("maito") is None
+
+
+def test_warm_noop_without_key(with_vectors, monkeypatch):
+    from app.catalog import warm
+    _no_key(monkeypatch)
+    monkeypatch.setattr(embeddings, "embed_query", lambda *a, **k: pytest.fail("embedded"))
+    assert warm.warm() == 0
+
+
+def test_warm_noop_without_embeddings(conn, monkeypatch):
+    from app.catalog import warm
+    monkeypatch.setenv("GEMINI_API_KEY", "fake")
+    monkeypatch.setattr(embeddings, "embed_query", lambda *a, **k: pytest.fail("embedded"))
+    assert warm.warm() == 0
+
+
+def test_warm_fills_cache(with_vectors, monkeypatch):
+    from app.catalog import warm
+    monkeypatch.undo()  # real embed_query, fake HTTP transport below
+    monkeypatch.setenv("CATALOG_DB", store.db_file(with_vectors))
+    monkeypatch.setattr(embeddings, "_embedder", embeddings.GeminiEmbedder(
+        "k", transport=httpx.MockTransport(lambda r: httpx.Response(
+            200, json={"embeddings": [{"values": [0.1] * embeddings.DIMS}]})), sleep=lambda s: None))
+    embeddings.clear_query_cache()
+    assert warm.warm(("kerma", "cream")) == 2
+    assert embeddings.cached("kerma") and embeddings.cached("Cream")
 
 
 # --- full catalog with real embeddings (data/catalog.db), skipped when absent ---

@@ -59,7 +59,9 @@ class GeminiEmbedder:
             raise EmbeddingError("GEMINI_API_KEY is not set")
         return key
 
-    def embed(self, texts: list[str], task_type: str) -> list[list[float]]:
+    def embed(self, texts: list[str], task_type: str, *, max_retries: int | None = None,
+              timeout_s: float | None = None) -> list[list[float]]:
+        retries = self._max_retries if max_retries is None else max_retries
         if not texts:
             return []
         if len(texts) > BATCH_MAX:
@@ -68,10 +70,11 @@ class GeminiEmbedder:
                               "taskType": task_type, "outputDimensionality": DIMS} for t in texts]}
         headers = {"x-goog-api-key": self._key()}
         last = "no attempt"
-        for attempt in range(self._max_retries + 1):
+        for attempt in range(retries + 1):
             delay = BACKOFF_S[min(attempt, len(BACKOFF_S) - 1)]
             try:
-                r = self._http.post(URL, json=body, headers=headers)
+                r = self._http.post(URL, json=body, headers=headers,
+                                    **({} if timeout_s is None else {"timeout": timeout_s}))
             except httpx.TransportError as e:
                 last = f"transport error: {type(e).__name__}"
             else:
@@ -88,9 +91,9 @@ class GeminiEmbedder:
                             delay = min(max(0.0, ra), MAX_RETRY_AFTER_S)
                     except (KeyError, ValueError):
                         pass
-            if attempt < self._max_retries:
+            if attempt < retries:
                 self._sleep(delay)
-        raise EmbeddingError(f"embedding failed after {self._max_retries + 1} attempts ({last})")
+        raise EmbeddingError(f"embedding failed after {retries + 1} attempts ({last})")
 
     @staticmethod
     def _parse(r: httpx.Response, n: int) -> list[list[float]]:
@@ -122,24 +125,40 @@ def embed_documents(texts: list[str]) -> list[list[float]]:
 _cache: "OrderedDict[str, list[float]]" = OrderedDict()
 
 
-def embed_query(text: str) -> list[float]:
+def embed_query(text: str, timeout_s: float | None = None) -> list[float]:
+    """Query vector (LRU cached). Search path: one retry and an HTTP timeout within the search budget,
+    so a hung API can't pin the worker threads; the pre-warm passes a longer `timeout_s`."""
     key = " ".join(text.casefold().split())
     with _lock:
         if key in _cache:
             _cache.move_to_end(key)
             return _cache[key]
-    # retries=0 semantics for queries: one attempt; the caller has a time budget
-    emb = get_embedder()
-    saved, emb._max_retries = emb._max_retries, 1
-    try:
-        vec = emb.embed([text], "RETRIEVAL_QUERY")[0]
-    finally:
-        emb._max_retries = saved
+    vec = get_embedder().embed([text], "RETRIEVAL_QUERY", max_retries=1,
+                               timeout_s=_timeout_s() if timeout_s is None else timeout_s)[0]
     with _lock:
         _cache[key] = vec
         while len(_cache) > QUERY_CACHE_SIZE:
             _cache.popitem(last=False)
     return vec
+
+
+def cached(text: str) -> bool:
+    with _lock:
+        return " ".join(text.casefold().split()) in _cache
+
+
+_dotenv_loaded = False
+
+
+def has_key() -> bool:
+    """Cheap check (no network, .env read once) so search skips the embed path entirely without a key."""
+    global _dotenv_loaded
+    if _embedder is not None and _embedder._api_key:
+        return True
+    if not _dotenv_loaded:
+        load_dotenv()
+        _dotenv_loaded = True
+    return bool(os.environ.get("GEMINI_API_KEY"))
 
 
 def clear_query_cache() -> None:
@@ -161,6 +180,8 @@ def try_embed_query(text: str, timeout_s: float | None = None) -> list[float] | 
     """Query vector, or None on any failure / when the budget is exceeded (the call keeps running in
     the background and lands in the cache, so a repeat query is fast)."""
     budget = _timeout_s() if timeout_s is None else timeout_s
+    if not cached(text) and not has_key():
+        return None
     fut = _pool.submit(embed_query, text)
     try:
         return fut.result(timeout=budget)
