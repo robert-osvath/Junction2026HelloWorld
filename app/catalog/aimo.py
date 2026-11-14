@@ -5,6 +5,7 @@ cache keyed (kind, product_id, date), retry with deterministic backoff on 429 / 
 
 Real shapes (verified live 2026-11-14): both responses are {"products": [{"productId": ...}, ...]}.
 """
+import math
 import os
 import threading
 import time
@@ -18,6 +19,7 @@ from pydantic import BaseModel
 BATCH_SIZE = 1000
 UNKNOWN_QTY = 999999
 BACKOFF_S = (0.5, 1.0, 2.0, 4.0)
+MAX_RETRY_AFTER_S = 30.0  # never block a request thread longer than this on a server's Retry-After
 DEFAULT_CUSTOMER = "1"
 
 
@@ -48,8 +50,12 @@ def _val(v: dict | None) -> float | None:
     return None if not v or v.get("value") is None else float(v["value"])
 
 
-def _items(payload: dict) -> list[dict]:
-    return payload["products"]
+def _items(payload: Any) -> list[dict]:
+    """The `products` list, or AimoError if the 200 body isn't the documented shape."""
+    items = payload.get("products") if isinstance(payload, dict) else None
+    if not isinstance(items, list) or not all(isinstance(i, dict) and "productId" in i for i in items):
+        raise AimoError(f"unexpected response shape: {str(payload)[:200]}")
+    return items
 
 
 def _parse_price(item: dict) -> PriceInfo | None:
@@ -82,7 +88,7 @@ def _parse_availability(item: dict) -> AvailabilityInfo | None:
         product_id=item["productId"],
         available_date=line0.get("availableDate"),  # "YYYY-MM-DD"
         closing_time=closing,  # "2026-11-12T15:00:00+0200" (tz-aware)
-        sales_block=bool(item.get("salesBlock", False)),
+        sales_block=bool(item.get("salesBlock")) or bool(line0.get("salesBlock")),
         logistic_model=model,
         quantity=qty,
     )
@@ -124,15 +130,21 @@ class AimoClient:
                 last = f"transport error: {type(e).__name__}"
             else:
                 if r.status_code == 200:
-                    return r.json()
+                    try:
+                        return r.json()
+                    except ValueError as e:
+                        raise AimoError(f"{path} -> HTTP 200 with a non-JSON body: {r.text[:200]}") from e
                 if r.status_code != 429 and r.status_code < 500:
                     raise AimoError(f"{path} -> HTTP {r.status_code}: {r.text[:200]}")
                 last = f"HTTP {r.status_code}"
                 if r.status_code == 429:
                     try:
-                        delay = max(0.0, float(r.headers["Retry-After"]))
+                        retry_after = float(r.headers["Retry-After"])
                     except (KeyError, ValueError):
-                        pass
+                        pass  # missing, or an HTTP-date: keep the default backoff
+                    else:
+                        if math.isfinite(retry_after):
+                            delay = min(max(0.0, retry_after), MAX_RETRY_AFTER_S)
             if attempt < self._max_retries:
                 self._sleep(delay)
         raise AimoError(f"{path} failed after {self._max_retries + 1} attempts ({last})")
@@ -156,14 +168,19 @@ class AimoClient:
             payload = self._post(path, {"customer": self._customer,
                                         "requestedDate": requested_date.isoformat(),
                                         "products": batch})
+            wanted = set(batch)
             found = {}
             for item in _items(payload):
                 pid = str(item["productId"])
                 info = parse(item)
-                if pid in batch and info is not None:
+                if pid in wanted and info is not None:
                     found[pid] = info
             stamp = self._clock()
             with self._lock:
+                # drop expired entries so the cache doesn't grow without bound across dates
+                expired = [k for k, (t, _) in self._cache.items() if stamp - t >= self._ttl]
+                for k in expired:
+                    del self._cache[k]
                 for pid in batch:  # absent ids cached as None so repeats don't re-query
                     self._cache[(kind, pid, requested_date)] = (stamp, found.get(pid))
             out.update(found)

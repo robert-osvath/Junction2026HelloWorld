@@ -153,3 +153,40 @@ def test_missing_key_raises_on_call(monkeypatch):
     with pytest.raises(AimoError):
         c.prices(["463038"], D)
     assert fake.calls == []
+
+
+@pytest.mark.parametrize("resp", [
+    httpx.Response(200, text="<html>maintenance</html>"),
+    httpx.Response(200, json={}),
+    httpx.Response(200, json={"products": [{"catalogPrice": {"value": 1}}]}),  # no productId
+])
+def test_malformed_200_raises_aimo_error(resp):
+    c, _, _ = make(Fake([resp]))
+    with pytest.raises(AimoError):
+        c.prices(["463038"], D)
+
+
+@pytest.mark.parametrize("header,expected", [("3600", 30.0), ("inf", 0.5), ("-5", 0.0)])
+def test_retry_after_is_clamped(header, expected):
+    ok = Fake()
+    fake = Fake([httpx.Response(429, headers={"Retry-After": header})])
+    fake.script.append(ok(httpx.Request("POST", "https://x/api/price",
+                                        json={"products": ["463038"]})))
+    c, sleeps, _ = make(fake)
+    assert "463038" in c.prices(["463038"], D)
+    assert sleeps == [expected]
+
+
+def test_sales_block_on_schedule_line_counts():
+    item = {**next(x for x in AVAIL["products"] if x["productId"] == "460000"), "salesBlock": False}
+    item["scheduleLines"] = [{**item["scheduleLines"][0], "salesBlock": True}]
+    c, _, _ = make(Fake([httpx.Response(200, json={"products": [item]})]))
+    assert c.availability(["460000"], D)["460000"].sales_block is True
+
+
+def test_expired_entries_are_evicted():
+    c, _, t = make(Fake())
+    c.prices(["463038"], D)
+    t[0] = 301
+    c.prices(["460000"], date(2026, 11, 18))
+    assert all(k[2] == date(2026, 11, 18) for k in c._cache)
