@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+import tempfile
 from dataclasses import dataclass
 from datetime import date
 from typing import Any, Awaitable, Callable, Protocol
@@ -97,15 +98,18 @@ async def _start_clean_local_api() -> tuple[str, asyncio.subprocess.Process]:
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     env = {**os.environ, "DB_URL": ""}
     port = "8765"
+    # log to a file, not an unread pipe: once the pipe buffer fills, the server blocks on its next log line
+    log = open(os.path.join(tempfile.gettempdir(), "aimo-demo-api.log"), "w+b")
     process = await asyncio.create_subprocess_exec(
         sys.executable, "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", port,
-        cwd=root, env=env, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
+        cwd=root, env=env, stdout=log, stderr=log,
     )
     base_url = f"http://127.0.0.1:{port}"
     async with httpx.AsyncClient(timeout=1.0) as client:
         for _ in range(50):
             if process.returncode is not None:
-                error = (await process.stderr.read()).decode(errors="replace") if process.stderr else ""
+                log.seek(0)
+                error = log.read().decode(errors="replace")
                 raise RuntimeError(f"Local API exited during startup: {error}")
             try:
                 if (await client.get(f"{base_url}/health")).is_success:
