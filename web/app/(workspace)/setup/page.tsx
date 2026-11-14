@@ -11,7 +11,7 @@ import Toast from "../../components/Toast";
 const csv = (s: string) => s.split(",").map((x) => x.trim()).filter(Boolean);
 const claim = (c: string) => { const v = c.toUpperCase().replace(/[ -]+/g, "_"); return v === "LACTOSE_FREE" ? "FREE_FROM_LACTOSE" : v; };
 
-// Same fields and storage as the Vimo cockpit's rules dialog, so both stay in sync.
+// Same fields, normalisation and storage as the Vimo cockpit's rules dialog (public/vimo/app.js): keep them in sync.
 function RulesDialog({ current, saved, onClose, onSaved }: { current: Mandate | null; saved: SavedRules; onClose: () => void; onSaved: (m: string) => void }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -43,8 +43,8 @@ function RulesDialog({ current, saved, onClose, onSaved }: { current: Mandate | 
             </label>
           </div>
           <div className="form-row">
-            <label><span>Auto-approve limit (€)</span><input name="limit" type="number" min="0" step="any" required defaultValue={v("limit", String(current?.auto_approve_limit_eur ?? 500))} /></label>
-            <label><span>Order budget (€)</span><input name="budget" type="number" min="1" step="any" required defaultValue={v("budget", String(current?.budget_per_order_eur ?? 2000))} /></label>
+            <label><span>Auto-approve limit (€)</span><input name="limit" type="number" min="0" max="1000000" step="any" required defaultValue={v("limit", String(current?.auto_approve_limit_eur ?? 500))} /></label>
+            <label><span>Order budget (€)</span><input name="budget" type="number" min="0.01" max="1000000" step="any" required defaultValue={v("budget", String(current?.budget_per_order_eur ?? 2000))} /></label>
           </div>
           <label><span>Required claims <em>(optional, comma separated)</em></span><input name="claim" placeholder="e.g. lactose-free, vegan" defaultValue={v("claim", current?.required_claims.join(", ") ?? "")} /></label>
           <label><span>Blocked allergens <em>(GS1 codes, e.g. AM milk, AW gluten)</em></span>
@@ -72,15 +72,19 @@ export default function Setup() {
   const [editing, setEditing] = useState(false);
   const [toast, setToast] = useToast();
 
-  const all = orders.data ?? [];
+  // Only this buyer's orders count: the demo backend is shared by every visitor.
+  const mine = new Set([saved.policy_id, policy.data?.id].filter(Boolean));
+  const all = (orders.data ?? []).filter((o) => mine.has(o.mandate_id));
+  const ids = new Set(all.map((o) => o.id));
+  const ready = policy.data !== null || policy.err !== "";  // the form opens prefilled with the rules in force
   const steps = [
     { title: "Set your buyer rules", text: "Auto-approve limit, budget, required claims and blocked allergens.", done: Boolean(saved.policy_id),
-      action: <button className={saved.policy_id ? "text-button" : "secondary"} onClick={() => setEditing(true)}>{saved.policy_id ? "Edit" : "Set up"}{!saved.policy_id && <Icon name="arrow" size={15} />}</button> },
+      action: <button className={saved.policy_id ? "text-button" : "secondary"} disabled={!ready} onClick={() => setEditing(true)}>{saved.policy_id ? "Edit" : "Set up"}{!saved.policy_id && <Icon name="arrow" size={15} />}</button> },
     { title: "Ask for your first order", text: "By voice or text with Vimo, or with New purchase in the top bar.", done: all.length > 0,
       action: <a className="secondary" href="/vimo/index.html">Ask Vimo <Icon name="arrow" size={15} /></a> },
-    { title: "See the jury decide", text: "Code gates and model jurors check spec, delivery, cost and sustainability.", done: all.some((o) => o.verdicts.length > 0),
+    { title: "See the jury decide", text: "Code gates and model jurors check spec, delivery, cost and sustainability.", done: all.some((o) => o.status !== "pending_approval"),
       action: <Link className="secondary" href="/timeline">Open timeline <Icon name="arrow" size={15} /></Link> },
-    { title: "Approve a held order", text: "Orders over your limit or off-policy wait for you in the approval inbox.", done: (audit.data ?? []).some((e) => e.actor === "human"),
+    { title: "Approve a held order", text: "Orders over your limit or off-policy wait for you in the approval inbox.", done: (audit.data ?? []).some((e) => e.actor === "human" && e.order_id !== null && ids.has(e.order_id)),
       action: <Link className="secondary" href="/approvals">Open inbox <Icon name="arrow" size={15} /></Link> },
   ];
   const done = steps.filter((s) => s.done).length;

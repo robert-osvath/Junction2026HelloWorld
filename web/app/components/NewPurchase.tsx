@@ -26,6 +26,7 @@ export default function NewPurchase({ initialQuery, onClose }: { initialQuery: s
   const [found, setFound] = useState<{ q: string; items: CatalogItem[] }>({ q: "", items: [] });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [duplicate, setDuplicate] = useState("");  // 409: link to the order that already exists
 
   const q = intent.trim();
   useEffect(() => {
@@ -37,31 +38,46 @@ export default function NewPurchase({ initialQuery, onClose }: { initialQuery: s
   }, [q, pick]);
   const results = !pick && found.q === q ? found.items : [];
 
+  const goto = (n: number) => { setErr(""); setStep(n); };
+
   async function submit(e: FormEvent) {
     e.preventDefault();
-    if (step === 1) { setStep(2); return; }
+    if (step === 1) {
+      if (!q) { setErr("Describe what you are purchasing."); return; }
+      goto(2);
+      return;
+    }
     setBusy(true); setErr("");
+    const body = {
+      policy_id: rules.policy_id || null,  // none saved: the backend applies the buyer's current/default policy
+      buyer_name: rules.buyer || null,
+      product_id: pick?.id ?? null,
+      product_intent: q,
+      quantity: Number(quantity),
+      unit,
+      deliver_by: deliverBy,
+      exception_reason: note.trim() || null,
+    };
     try {
-      const order = await api<Order>("/experience/create-draft", "POST", {
-        policy_id: rules.policy_id || null,  // none saved: the backend applies the buyer's current/default policy
-        buyer_name: rules.buyer || null,
-        product_id: pick?.id ?? null,
-        product_intent: q,
-        quantity: Number(quantity),
-        unit,
-        deliver_by: deliverBy,
-        exception_reason: note.trim() || null,
-      });
+      const order = await api<Order>("/experience/create-draft", "POST", body)
+        // a policy id the server no longer knows (e.g. saved against another backend): use the buyer's current policy
+        .catch((e2: Error) => (body.policy_id && e2.message.startsWith("Unknown policy")
+          ? api<Order>("/experience/create-draft", "POST", { ...body, policy_id: null }) : Promise.reject(e2)));
       onClose();
       router.push(`/approvals/${order.id}`);
-    } catch (e2) { setErr((e2 as Error).message); setBusy(false); }
+    } catch (e2) {
+      const m = (e2 as Error).message;
+      setErr(m);
+      setDuplicate(/\((order-[\w-]+),/.exec(m)?.[1] ?? "");
+      setBusy(false);
+    }
   }
 
   return (
     <Modal title="Start a new purchase" subtitle="Tell Vimo what the kitchen needs. The jury picks the product and checks your rules." busy={busy} onClose={onClose}>
       <form onSubmit={submit}>
-        <div className="stepper" aria-label={`Step ${step} of 2`}>
-          <span className="active">1</span><i /><span className={step === 2 ? "active" : ""}>2</span>
+        <div className="stepper" role="group" aria-label={`Step ${step} of 2`}>
+          <span className="active" aria-current={step === 1 ? "step" : undefined}>1</span><i /><span className={step === 2 ? "active" : ""} aria-current={step === 2 ? "step" : undefined}>2</span>
           <p>{step === 1 ? "What and how much" : "When and why"}</p>
         </div>
         {step === 1 ? (
@@ -69,7 +85,7 @@ export default function NewPurchase({ initialQuery, onClose }: { initialQuery: s
             <label>
               <span>What are you purchasing?</span>
               <input autoFocus required maxLength={160} value={intent} placeholder="e.g. lactose-free milk"
-                onChange={(e) => { setIntent(e.target.value); setPick(null); }} />
+                onChange={(e) => { setIntent(e.target.value); setPick(null); setErr(""); }} />
             </label>
             {pick && <p className="form-note"><Icon name="check" /><span><strong>Catalog hint: {pick.name}</strong>The jury may still choose a better match.</span></p>}
             {results.length > 0 && (
@@ -85,9 +101,9 @@ export default function NewPurchase({ initialQuery, onClose }: { initialQuery: s
               </ul>
             )}
             <div className="form-row">
-              <label><span>Quantity</span><input required type="number" min="0.01" step="any" value={quantity} onChange={(e) => setQuantity(e.target.value)} /></label>
+              <label><span>Quantity</span><input required type="number" min="0.01" max="1000000" step="any" value={quantity} onChange={(e) => { setQuantity(e.target.value); setErr(""); }} /></label>
               <label><span>Unit</span>
-                <select value={unit} onChange={(e) => setUnit(e.target.value as Need["unit"])}>
+                <select value={unit} onChange={(e) => { setUnit(e.target.value as Need["unit"]); setErr(""); }}>
                   <option value="L">litres (L)</option><option value="kg">kilograms (kg)</option><option value="pcs">pieces (pcs)</option>
                 </select>
               </label>
@@ -106,9 +122,9 @@ export default function NewPurchase({ initialQuery, onClose }: { initialQuery: s
             <p className="muted">{q}: {quantity} {unit}{pick ? ` (hint: ${pick.name})` : ""}</p>
           </div>
         )}
-        {err && <p className="err form-err" role="alert">{err}</p>}
+        {err && <p className="err form-err" role="alert">{err}{duplicate && <> <Link href={`/approvals/${duplicate}`} onClick={onClose}>Open that order</Link></>}</p>}
         <div className="modal-actions">
-          {step === 2 && <button type="button" className="secondary" disabled={busy} onClick={() => setStep(1)}>Back</button>}
+          {step === 2 && <button type="button" className="secondary" disabled={busy} onClick={() => goto(1)}>Back</button>}
           <button type="button" className="secondary" disabled={busy} onClick={onClose}>Cancel</button>
           <button type="submit" className="primary" disabled={busy}>{step === 1 ? "Continue" : busy ? "The jury is checking…" : "Create purchase"}<Icon name="arrow" /></button>
         </div>
