@@ -4,6 +4,7 @@ Unlike the jury's same-category SKU swap, a rule changes the ingredient and, whe
 amount and unit, and says what changes on the plate. The substitute is then sourced and checked
 like any other ingredient, so allergen and claim rules still apply.
 """
+import re
 from dataclasses import dataclass
 
 
@@ -19,7 +20,8 @@ class Swap:
 # ("sour cream" and "cream cheese" before "cream", "buttermilk" before "butter").
 RULES: list[tuple[tuple[str, ...], list[Swap]]] = [
     # look-alikes of dairy words that are different ingredients: no swap rather than a wrong one
-    (("peanut butter", "nut butter", "coconut milk", "coconut cream", "ice cream", "milk chocolate", "milk powder"), []),
+    (("peanut butter", "nut butter", "almond butter", "butter beans", "coconut milk", "coconut cream", "ice cream",
+      "milk chocolate", "milk powder", "oat milk", "soy milk", "almond milk", "rice milk", "plant milk"), []),
     (("buttermilk", "piimä"), [
         Swap("turkish yoghurt", 0.75, "Use 3 parts Turkish yoghurt thinned with 1 part water or milk; same tang and acidity for batters and marinades.", "kg"),
     ]),
@@ -77,7 +79,9 @@ def swaps_for(intent: str) -> list[Swap]:
     """Recipe substitutes for an ingredient, best first; [] when no rule applies."""
     text = intent.casefold()
     for keywords, swaps in RULES:
-        if any(k in text for k in keywords):
+        # keyword must END a word ("edam" not in "edamame", "cream" not in "creamed"); the start is free
+        # so Finnish compounds still match ("maito" in "kevytmaito")
+        if any(re.search(rf"{re.escape(k)}\b", text) for k in keywords):
             # never "substitute" an ingredient with itself (e.g. Turkish yoghurt under the yoghurt rule)
             return [s for s in swaps if s.intent not in text]
     return []

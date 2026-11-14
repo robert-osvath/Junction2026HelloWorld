@@ -90,4 +90,7 @@ def test_too_many_ingredients_is_refused_before_any_lookup():
 
 def test_lookalike_ingredients_are_not_swapped_as_dairy():
     assert swaps_for("cream cheese")[0].intent == "mascarpone"
-    assert swaps_for("peanut butter") == swaps_for("coconut milk") == swaps_for("ice cream") == []
+    for lookalike in ("peanut butter", "coconut milk", "ice cream", "edamame", "butternut squash", "creamed corn",
+                      "butter beans", "almond butter", "oat milk"):
+        assert swaps_for(lookalike) == [], lookalike
+    assert swaps_for("kevytmaito")[0].intent == "oat drink"
