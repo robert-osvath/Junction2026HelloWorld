@@ -225,3 +225,15 @@ def item_details(conn: sqlite3.Connection, ids: list[str]) -> dict[str, dict]:
         elif r[2] == "MAY_CONTAIN":
             out[r[0]]["may"].append(r[1])
     return out
+
+
+def offer_rows(conn: sqlite3.Connection, ids: list[str]) -> dict[str, dict]:
+    """Products by id, each with `size_in_base_units` of its sales unit (None if not listed)."""
+    if not ids:
+        return {}
+    marks = ",".join("?" * len(ids))
+    rows = conn.execute(
+        f"SELECT p.*, u.size_in_base_units FROM products p "
+        f"LEFT JOIN product_units u ON u.product_id = p.id AND u.unit_id = p.sales_unit "
+        f"WHERE p.id IN ({marks})", ids).fetchall()
+    return {r["id"]: dict(r) for r in rows}
