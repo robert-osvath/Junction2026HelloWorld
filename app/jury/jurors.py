@@ -269,6 +269,11 @@ def _evaluate_lines_heuristic(
     )
 
 
+# Live LLM calls run inside POST /orders and /jury/evaluate: bound them so a hung API can't block an order.
+# On timeout the except-branch below falls back to the calibrated heuristic. Milliseconds (google-genai).
+GEMINI_TIMEOUT_MS = int(os.getenv("JURY_LLM_TIMEOUT_MS", "8000"))
+
+
 def _get_env_key(*names: str) -> str:
     for n in names:
         val = os.getenv(n)
@@ -308,7 +313,8 @@ def evaluate_with_gemini_decision(
             try:
                 from google import genai
 
-                client = genai.Client(api_key=api_key, http_options={"api_version": "v1beta"})
+                client = genai.Client(api_key=api_key,
+                                      http_options={"api_version": "v1beta", "timeout": GEMINI_TIMEOUT_MS})
                 resp = client.decisions.create(
                     model="gemini-decision-1",
                     input=prompt_text,
@@ -450,7 +456,7 @@ def evaluate_with_generative_llm(
                 try:
                     from google import genai
 
-                    client = genai.Client(api_key=api_key)
+                    client = genai.Client(api_key=api_key, http_options={"timeout": GEMINI_TIMEOUT_MS})
                     interaction = client.interactions.create(
                         model=model_name,
                         system_instruction=system_prompt,
