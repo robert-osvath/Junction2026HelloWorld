@@ -1,27 +1,38 @@
-"""P2 (T5-T8). Mock: returns fixtures."""
+"""P2 (T5-T8): Jury evaluation and substitutes router."""
+import os
+
 from fastapi import APIRouter
 
-from app.mocks import load
-from contracts import JuryRequest, JuryResult, Offer, SubstitutesRequest, Verdict
+from app.jury.catalog_lookup import resolve_catalog_items
+from app.jury.jurors import _get_env_key, evaluate_with_gemini_decision
+from app.jury.substitutes import rank_substitutes
+from contracts import JuryRequest, JuryResult, Offer, SubstitutesRequest
 
 router = APIRouter(tags=["jury"])
 
 
+def _should_use_live_api() -> bool:
+    if os.getenv("JURY_LIVE_LLM", "").lower() in ("1", "true", "yes"):
+        return True
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        return False
+    key = _get_env_key("GEMINI_API_KEY", "GOOGLE_API_KEY")
+    return bool(key and not key.startswith("sk_"))
+
+
 @router.post("/jury/evaluate")
 def evaluate(req: JuryRequest) -> JuryResult:
-    # mock until T6: fixture verdicts, decision from the order total vs the mandate
-    total = sum(o.total_eur for o in req.offers)
-    m = req.mandate
-    decision = "reject" if total > m.budget_per_order_eur else "human_approval" if total > m.auto_approve_limit_eur else "auto_order"
-    res = load("jury_result")
-    # keep the cost verdict consistent with the decision (fixture reasons assume auto-approve)
-    cost = Verdict(juror="cost", decision={"auto_order": "approve", "human_approval": "escalate"}.get(decision, "reject"),
-                   confidence=1.0, model=None, reasons=[f"Total {total:,.2f} EUR vs auto-approve limit "
-                   f"{m.auto_approve_limit_eur:,.2f} and budget {m.budget_per_order_eur:,.2f}"])
-    verdicts = [cost if v.juror == "cost" else v for v in res.verdicts]
-    return res.model_copy(update={"decision": decision, "verdicts": verdicts})
+    catalog_items = resolve_catalog_items([o.product_id for o in req.offers])
+    metrics = evaluate_with_gemini_decision(
+        mandate=req.mandate,
+        need=req.need,
+        offers=req.offers,
+        catalog_items=catalog_items,
+        live_api=_should_use_live_api(),
+    )
+    return metrics.result
 
 
 @router.post("/substitutes")
 def substitutes(req: SubstitutesRequest) -> list[Offer]:
-    return [load("offer")]
+    return rank_substitutes(req)
