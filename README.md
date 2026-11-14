@@ -34,14 +34,14 @@ the working directory. Set `AIMO_API_URL` when the REST API is not at
 
 ## Buyer demo (T10–T11)
 
-With a freshly started local API and catalog data, run all three P3 scenarios:
+After the catalog setup above, run all three P3 scenarios with one command:
 
 ```bash
-uv run uvicorn app.main:app --port 8000
 uv run python scripts/demo_runner.py
 ```
 
-The runner sends a natural-language hotel request through the MCP tools and
+The runner starts a disposable local API with an in-memory order/audit store,
+then sends a natural-language hotel request through real stdio MCP tools and
 asserts an auto-order, a stock-out with ranked substitutes, and an over-budget
 order that a human approves. It also verifies the audit chain. Set
 `AIMO_API_URL` to run the same command against a deployed API.
