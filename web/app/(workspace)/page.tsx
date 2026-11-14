@@ -3,14 +3,14 @@ import Link from "next/link";
 export default function Home() {
   return (
     <>
-      <section className="hero">
+      <section className="hero-row"><div>
         <p className="eyebrow">Open ordering interface</p>
-        <h1>Let any buyer agent order from Aimo, <em>safely</em>.</h1>
-        <p className="lede">
+        <h1>Let any buyer agent order from Aimo, safely.</h1>
+        <p>
           External buyer agents place orders with Aimo. A jury of code gates and models decides, humans approve
           the rest, and every step lands in a verified audit trail.
         </p>
-      </section>
+      </div></section>
       <div className="cards">
         <a className="card" href="/vimo/index.html"><h2>Order as a buyer</h2><p>Ask Vimo for what you need and watch the jury decide.</p></a>
         <Link className="card" href="/approvals"><h2>Approve as Aimo</h2><p>Review held orders, approve or reject, and check the audit log.</p></Link>
