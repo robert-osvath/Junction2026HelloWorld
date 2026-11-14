@@ -46,7 +46,7 @@ def test_publish_script_only_updates_vimo_prompt_tools_and_turn_settings() -> No
 
     assert patch == {
         "conversation_config": {
-            "agent": {"prompt": {"ignore_default_personality": True, "prompt": prompt["prompt"]}},
+            "agent": {"prompt": {"ignore_default_personality": True, "prompt": prompt["prompt"], "max_tokens": 1024}},
             "turn": {"turn_timeout": -1, "turn_eagerness": "normal", "speculative_turn": False},
         },
     }
@@ -81,3 +81,14 @@ def test_publish_plans_tool_updates_by_name_ignoring_platform_defaults() -> None
     assert plan["get_backend_state"] == ("keep", "t1")
     assert plan["create_order_draft"] == ("update", "t2")
     assert plan["plan_event"] == ("create", None)
+
+
+def test_vimo_refuses_off_topic_requests() -> None:
+    prompt = live_config()["conversation_config"]["agent"]["prompt"]["prompt"]
+    assert "# Scope" in prompt and "I can only help with purchasing for your kitchen." in prompt
+    assert prompt.index("# Scope") < prompt.index("# Response discipline")  # read before anything else is answered
+
+
+def test_vimo_has_room_for_a_full_menu_tool_call() -> None:
+    """At 80 max_tokens Gemini truncated plan_event arguments, failed the turn, and the fallback only talked."""
+    assert live_config()["conversation_config"]["agent"]["prompt"]["max_tokens"] >= 1000

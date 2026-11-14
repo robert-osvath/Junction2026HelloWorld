@@ -217,6 +217,10 @@ def search_rows(conn: sqlite3.Connection, terms: list[str], claims: list[str],
                         [*args, candidates]).fetchall()
 
 
+def known_claims(conn: sqlite3.Connection) -> set[str]:
+    return {r[0] for r in conn.execute("SELECT DISTINCT claim FROM product_claims")}
+
+
 def item_details(conn: sqlite3.Connection, ids: list[str]) -> dict[str, dict]:
     """claims / allergen lists per product id, for mapping rows to CatalogItem."""
     out = {i: {"claims": [], "contains": [], "may": []} for i in ids}

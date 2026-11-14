@@ -150,3 +150,13 @@ def test_default_policy_without_save_and_edit_roundtrip():
     now = client.get("/experience/policy", params={"buyer_name": "Brand New Bistro"}).json()
     assert now["id"] == r.json()["policy_id"] and now["auto_approve_limit_eur"] == 150
     assert now["budget_per_order_eur"] == 2000 and now["banned_allergens"] == ["AM"]
+
+
+def test_policy_rejects_claims_no_product_carries(monkeypatch):
+    monkeypatch.setattr(experience.catalog_store, "known_claims", lambda conn: {"FREE_FROM_LACTOSE", "VEGAN"})
+    body = {"buyer_name": "Claim kitchen", "buyer_type": "restaurant", "auto_approve_limit": 300, "budget": 900,
+            "banned_allergens": [], "strict_allergens": False, "substitutes_allowed": True}
+    bad = TestClient(app).post("/experience/policies", json={**body, "required_claims": ["non"]})
+    assert bad.status_code == 422 and bad.json()["detail"].startswith("Unknown required claim(s): NON")
+    ok = TestClient(app).post("/experience/policies", json={**body, "required_claims": ["free_from_lactose"]})
+    assert ok.status_code == 200
