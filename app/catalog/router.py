@@ -1,12 +1,13 @@
-"""P1 catalog endpoints: T2 search (mock until the T2 PR lands), T4 offers (real)."""
+"""P1 catalog endpoints: T2 search (real), T4 offers (real)."""
 import logging
+from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.catalog import store
 from app.catalog.aimo import AimoClient, AimoError, get_client
 from app.catalog.offers import InvalidOfferRequest, get_offers
-from app.mocks import load
+from app.catalog.search import search as run_search
 from contracts import CatalogItem, Offer, OffersRequest
 
 router = APIRouter(tags=["catalog"])
@@ -14,8 +15,13 @@ router = APIRouter(tags=["catalog"])
 
 @router.get("/catalog/search")
 def search(q: str = "", claims: str = "", exclude_allergens: str = "", category: str = "",
-           limit: int = 20) -> list[CatalogItem]:
-    return [load("catalog_item")][:limit]
+           limit: int = 20,
+           quantity: float | None = Query(None, gt=0, allow_inf_nan=False), unit: Literal["L", "kg", "pcs"] | None = None) -> list[CatalogItem]:
+    conn = store.connect()  # per request: sqlite connections are not shared across threads
+    try:
+        return run_search(conn, q, claims, exclude_allergens, category, limit, quantity, unit)
+    finally:
+        conn.close()
 
 
 @router.post("/offers")

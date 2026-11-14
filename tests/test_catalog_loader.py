@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from app.catalog.loader import DATA_DIR, load, load_from_files, normalize, read_csv_map
+from app.catalog.loader import (DATA_DIR, content_per_sales_unit, load, load_from_files, normalize,
+                                parse_name_content, read_csv_map)
 from app.catalog.store import PRODUCT_COLUMNS, connect
 
 SAMPLES = json.loads((Path(__file__).parent / "fixtures" / "sample_products.json").read_text())
@@ -140,3 +141,63 @@ def test_full_catalog():
     assert c.execute("SELECT COUNT(*) FROM substitutions WHERE product_id = substitute_id").fetchone()[0] == 0
     eila = c.execute("SELECT level FROM product_allergens WHERE product_id='463038' AND code='AM'").fetchone()
     assert eila[0] == "CONTAINS"
+
+
+# --- pack content (T2) ---
+
+@pytest.mark.parametrize("name,expected", [
+    ("Valio Eila 10 l novobox", (10, 1, "L")),
+    ("Milk 1 L UHT", (1, 1, "L")),
+    ("Cream 2,5 dl", (0.25, 1, "L")),
+    ("Cream 2.5 dl", (0.25, 1, "L")),
+    ("Flour 25 kg", (25, 1, "KG")),
+    ("Jam 400g", (0.4, 1, "KG")),
+    ("Portion milk 100x2 cl", (0.02, 100, "L")),
+    ("Pizza 20X210G", (0.21, 20, "KG")),
+    ("Ice cream 465ml/406g", None),       # two different sizes: ambiguous
+    ("12 x Arla Natural 150 g", None),    # leading count, scope unclear
+    ("Cheese 1,5% 200 g", (0.2, 1, "KG")),  # percentage is not a size
+    ("Wooden ladel 25CM", None),
+    ("JÄÄTELÖKAUHA 1/20 L", None),     # fraction, not a size
+    ("Mixed 1 lk", None),
+    (None, None),
+])
+def test_parse_name_content(name, expected):
+    assert parse_name_content(name) == expected
+
+
+def test_sample_products_content():
+    got = {p["id"]: (p["content_per_sales_unit"], p["content_unit"])
+           for p in (normalize(sample(i), {}, {})["product"] for i in ("463038", "460000", "460025"))}
+    assert got["463038"] == (20.0, "L")      # 10 l from the name x 2 per KI
+    assert got["460000"] == (0.4, "KG")      # 400 g from unitConversions
+    assert got["460025"][1] in ("KG", None)
+
+
+def test_content_multipack_and_unit_structure():
+    raw = sample("463038")
+    raw["synkkaData"]["names"] = [{"language": "en", "value": "Coffee drink 12x250 ml"}]
+    raw["baseUnit"] = "BOT"
+    raw["units"] = [{"unitId": "KI", "sizeInBaseUnits": 12.0}, {"unitId": "BOT", "sizeInBaseUnits": 1.0}]
+    assert content_per_sales_unit(raw, ["Coffee drink 12x250 ml"]) == (3.0, "L", 1)
+    raw["units"][0]["sizeInBaseUnits"] = 5.0  # doesn't line up with "12x": reject
+    assert content_per_sales_unit(raw, ["Coffee drink 12x250 ml"]) == (None, None, 0)
+
+
+def test_name_size_beats_conflicting_packaging_weight():
+    raw = sample("463038")
+    raw["salesUnit"] = raw["baseUnit"] = "ST"
+    raw["synkkaData"]["unitConversions"] = [{"synkkaPackagingType": "BASE_UNIT_OR_EACH",
+                                             "netWeight": {"unit": "GRM", "value": 6000.0}}]
+    # a 500 ml bowl whose packaging weight says 6 kg: the name wins (different dimension)
+    assert content_per_sales_unit(raw, ["Salad bowl 500 ml"]) == (0.5, "L", 1)
+    # same dimension but 100% off: name wins; within 25%: unitConversions value kept
+    assert content_per_sales_unit(raw, ["Salad 3 kg"]) == (3.0, "KG", 1)
+    assert content_per_sales_unit(raw, ["Salad 5 kg"]) == (6.0, "KG", 1)
+    # no size in the name: packaging figure kept, but unconfirmed
+    assert content_per_sales_unit(raw, ["Salad bowl"]) == (6.0, "KG", 0)
+
+
+@pytest.mark.parametrize("name", ["PUMPKIN 7-9kg/pcs", "Kala 10-20 kg", "Herne 200-300G", "Juoma 1 – 2 l"])
+def test_size_ranges_are_not_pack_sizes(name):
+    assert parse_name_content(name) is None
