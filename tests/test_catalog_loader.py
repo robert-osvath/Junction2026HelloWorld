@@ -158,6 +158,7 @@ def test_full_catalog():
     ("12 x Arla Natural 150 g", None),    # leading count, scope unclear
     ("Cheese 1,5% 200 g", (0.2, 1, "KG")),  # percentage is not a size
     ("Wooden ladel 25CM", None),
+    ("JÄÄTELÖKAUHA 1/20 L", None),     # fraction, not a size
     ("Mixed 1 lk", None),
     (None, None),
 ])
@@ -178,6 +179,20 @@ def test_content_multipack_and_unit_structure():
     raw["synkkaData"]["names"] = [{"language": "en", "value": "Coffee drink 12x250 ml"}]
     raw["baseUnit"] = "BOT"
     raw["units"] = [{"unitId": "KI", "sizeInBaseUnits": 12.0}, {"unitId": "BOT", "sizeInBaseUnits": 1.0}]
-    assert content_per_sales_unit(raw, ["Coffee drink 12x250 ml"]) == (3.0, "L")
+    assert content_per_sales_unit(raw, ["Coffee drink 12x250 ml"]) == (3.0, "L", 1)
     raw["units"][0]["sizeInBaseUnits"] = 5.0  # doesn't line up with "12x": reject
-    assert content_per_sales_unit(raw, ["Coffee drink 12x250 ml"]) == (None, None)
+    assert content_per_sales_unit(raw, ["Coffee drink 12x250 ml"]) == (None, None, 0)
+
+
+def test_name_size_beats_conflicting_packaging_weight():
+    raw = sample("463038")
+    raw["salesUnit"] = raw["baseUnit"] = "ST"
+    raw["synkkaData"]["unitConversions"] = [{"synkkaPackagingType": "BASE_UNIT_OR_EACH",
+                                             "netWeight": {"unit": "GRM", "value": 6000.0}}]
+    # a 500 ml bowl whose packaging weight says 6 kg: the name wins (different dimension)
+    assert content_per_sales_unit(raw, ["Salad bowl 500 ml"]) == (0.5, "L", 1)
+    # same dimension but 100% off: name wins; within 25%: unitConversions value kept
+    assert content_per_sales_unit(raw, ["Salad 3 kg"]) == (3.0, "KG", 1)
+    assert content_per_sales_unit(raw, ["Salad 5 kg"]) == (6.0, "KG", 1)
+    # no size in the name: packaging figure kept, but unconfirmed
+    assert content_per_sales_unit(raw, ["Salad bowl"]) == (6.0, "KG", 0)

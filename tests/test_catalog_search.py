@@ -1,5 +1,7 @@
 """T2 catalog search: unit tests on the 3 sample products (conftest DB) + full-data checks."""
 import json
+import os
+import shutil
 import time
 from pathlib import Path
 
@@ -18,7 +20,11 @@ full_data = pytest.mark.skipif(not (DATA_DIR / "products.json").exists(), reason
 
 
 @pytest.fixture
-def conn():
+def conn(tmp_path, monkeypatch):
+    """A per-test copy of the sample DB (tests add rows and the endpoint reads the same copy)."""
+    copy = tmp_path / "catalog.db"
+    shutil.copy(os.environ["CATALOG_DB"], copy)
+    monkeypatch.setenv("CATALOG_DB", str(copy))
     c = store.connect()
     yield c
     c.close()
@@ -107,9 +113,10 @@ def test_fts_rebuilds_on_existing_db(tmp_path):
     assert ids(search(c, "kaura")) == ["1"]
 
 
-def _add(conn, pid, name, content, unit="L"):
+def _add(conn, pid, name, content, unit="L", confirmed=1):
     conn.execute("INSERT INTO products (id, name_en, sales_unit, has_allergen_data, content_per_sales_unit, "
-                 "content_unit) VALUES (?, ?, 'KI', 0, ?, ?)", (pid, name, content, unit))
+                 "content_unit, content_confirmed) VALUES (?, ?, 'KI', 0, ?, ?, ?)",
+                 (pid, name, content, unit, confirmed))
 
 
 def test_pack_fit_ordering(conn):
@@ -135,29 +142,84 @@ def test_endpoint_quantity_params(conn):
     assert client.get("/catalog/search", params={"quantity": 5, "unit": "gallons"}).status_code == 422
 
 
-# --- full catalog ---
+def test_nan_inf_quantity_rejected(conn):
+    for bad in ("nan", "inf", "-inf", "0", "-5"):
+        r = client.get("/catalog/search", params={"q": "maito", "quantity": bad, "unit": "L"})
+        assert r.status_code == 422, bad
+    # the search function itself is also safe
+    assert search(conn, "maito", quantity=float("nan"), unit="L")
+    assert search(conn, "maito", quantity=float("inf"), unit="L")
+
+
+def test_short_and_punctuation_queries(conn):
+    _add(conn, "beer", "Lapin Kulta beer 0,33 l", 0.33)
+    conn.execute("UPDATE products SET name_fi = 'Olut ja öl-sekoitus' WHERE id = 'beer'")
+    store.rebuild_fts(conn)
+    assert ids(search(conn, "öl")) == ["beer"]   # short token: prefix match on name words
+    assert ids(search(conn, "ÖL")) == ["beer"]   # case-insensitive
+    assert ids(search(conn, "zz")) == []         # not an unfiltered browse
+    assert search(conn, '"') == [] and search(conn, "!!") == []
+    assert len(search(conn, "")) == 4 and len(search(conn, "   ")) == 4  # only an empty q browses
+    assert ids(search(conn, "ol", claims="FREE_FROM_LACTOSE")) == []  # filters still apply
+    assert ids(search(conn, "öl maito")) == ["463038"]  # long token via FTS, short one ignored
+
+
+def test_relevance_beats_pack_fit(conn):
+    _add(conn, "scoop", "Ice cream scoop 1/20", 100, confirmed=0)
+    _add(conn, "cream", "Cooking cream 15 l cream", 15)
+    store.rebuild_fts(conn)
+    assert ids(search(conn, "cream", quantity=100, unit="L"))[0] == "cream"
+
+
+# --- full catalog (built into a temp DB, never touches data/catalog.db) ---
+
+@pytest.fixture(scope="module")
+def full_db(tmp_path_factory):
+    from app.catalog.loader import load_from_files
+    path = tmp_path_factory.mktemp("full") / "catalog.db"
+    c = store.connect(path)
+    load_from_files(c)
+    c.close()
+    mp = pytest.MonkeyPatch()
+    mp.setenv("CATALOG_DB", str(path))
+    yield path
+    mp.undo()
+
 
 @full_data
 @pytest.mark.parametrize("q", ["laktoositon maito", "lactose-free milk"])
-def test_acceptance_eila_found(q, monkeypatch):
-    monkeypatch.setenv("CATALOG_DB", str(store.DEFAULT_DB))
+def test_acceptance_eila_found(q, full_db):
     r = client.get("/catalog/search", params={"q": q, "limit": 100}).json()
     assert "463038" in [x["product_id"] for x in r]
 
 
 @full_data
 @pytest.mark.parametrize("q", ["laktoositon maito", "lactose-free milk"])
-def test_acceptance_eila_top5_for_1000_l(q, monkeypatch):
-    monkeypatch.setenv("CATALOG_DB", str(store.DEFAULT_DB))
+def test_acceptance_eila_top5_for_1000_l(q, full_db):
     r = client.get("/catalog/search", params={"q": q, "limit": 5, "quantity": 1000, "unit": "L"}).json()
     assert "463038" in [x["product_id"] for x in r]
 
 
 @full_data
 @pytest.mark.parametrize("q", ["laktoositon maito", "lactose-free milk"])
-def test_search_under_200ms(q, monkeypatch):
-    monkeypatch.setenv("CATALOG_DB", str(store.DEFAULT_DB))
+def test_search_under_200ms(q, full_db):
     client.get("/catalog/search", params={"q": q, "quantity": 1000, "unit": "L"})  # warm-up
     t = time.perf_counter()
     assert client.get("/catalog/search", params={"q": q, "quantity": 1000, "unit": "L"}).status_code == 200
     assert (time.perf_counter() - t) * 1000 < 200
+
+
+@full_data
+def test_cream_50_l_returns_cream_product_first(full_db):
+    r = client.get("/catalog/search", params={"q": "cream", "limit": 3, "quantity": 50, "unit": "L"}).json()
+    assert "scoop" not in r[0]["name"].lower() and "cream" in r[0]["name"].lower()
+
+
+@full_data
+def test_pack_content_never_contradicts_name(full_db):
+    c = store.connect()
+    rows = c.execute("SELECT id, name_en, content_per_sales_unit AS c, content_unit AS u "
+                     "FROM products WHERE content_confirmed = 1").fetchall()
+    assert rows
+    assert c.execute("SELECT content_per_sales_unit, content_unit FROM products WHERE id = '463038'"
+                     ).fetchone()[:] == (20.0, "L")

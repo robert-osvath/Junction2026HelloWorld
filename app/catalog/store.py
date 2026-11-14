@@ -21,6 +21,7 @@ PRODUCT_COLUMNS = (
     "base_unit", "allowed_lot_size", "country_of_origin", "temperature_condition",
     "has_allergen_data", "delivery_reliability", "co2_kg_per_kg",
     "key_ingredients_fi", "key_ingredients_en", "content_per_sales_unit", "content_unit",
+    "content_confirmed",
 )
 
 SCHEMA = [
@@ -43,7 +44,8 @@ SCHEMA = [
         key_ingredients_fi    TEXT,
         key_ingredients_en    TEXT,
         content_per_sales_unit DOUBLE,            -- litres or kg per sales unit, NULL if unknown
-        content_unit          VARCHAR(2)          -- 'L' | 'KG' | NULL
+        content_unit          VARCHAR(2),         -- 'L' | 'KG' | NULL
+        content_confirmed     SMALLINT NOT NULL DEFAULT 0  -- 1 if the product name states a matching size
     )""",
     # nutritionalClaim ids, e.g. FREE_FROM_LACTOSE, VEGAN
     """CREATE TABLE IF NOT EXISTS product_claims (
@@ -118,7 +120,8 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
     for stmt in SCHEMA + FTS_SCHEMA:
         conn.execute(stmt)
     have = {r[1] for r in conn.execute("PRAGMA table_info(products)")}  # SQLite-only
-    for col, typ in (("content_per_sales_unit", "DOUBLE"), ("content_unit", "VARCHAR(2)")):
+    for col, typ in (("content_per_sales_unit", "DOUBLE"), ("content_unit", "VARCHAR(2)"),
+                     ("content_confirmed", "SMALLINT NOT NULL DEFAULT 0")):
         if col not in have:  # catalog.db built before T2: add the column, loader refills it
             conn.execute(f"ALTER TABLE products ADD COLUMN {col} {typ}")
     # existing catalog.db built before the FTS index existed: fill it
@@ -158,16 +161,21 @@ def replace_catalog(conn: sqlite3.Connection, products: list[dict],
 
 # --- search ---
 
+def query_tokens(q: str) -> list[str]:
+    return re.findall(r"\w+", q.casefold())
+
+
 def fts_terms(q: str) -> list[str]:
-    """Lower-cased word tokens of a query. Trigram needs >= 3 chars, shorter tokens are dropped."""
-    return [t for t in re.findall(r"\w+", q.lower()) if len(t) >= 3]
+    """Word tokens of a query usable by the trigram index (>= 3 chars)."""
+    return [t for t in query_tokens(q) if len(t) >= 3]
 
 
 def search_rows(conn: sqlite3.Connection, terms: list[str], claims: list[str],
-                exclude_allergens: list[str], category: str, candidates: int) -> list[sqlite3.Row]:
+                exclude_allergens: list[str], category: str, candidates: int,
+                short_terms: list[str] = ()) -> list[sqlite3.Row]:
     """Candidate products matching the filters, best bm25 first. With `terms`, a product matches if
     ANY term occurs (as a substring, so compounds match); callers rerank on how many terms hit.
-    Without terms it is a filter-only browse (bm25 = 0). Rows carry `bm25` (lower = better)."""
+    Without terms it is a filter-only browse (bm25 = -1, all equal). Rows carry `bm25` (lower = better)."""
     where, args = [], []
     if claims:
         where.append(f"(SELECT count(*) FROM product_claims c WHERE c.product_id = p.id "
@@ -181,6 +189,14 @@ def search_rows(conn: sqlite3.Connection, terms: list[str], claims: list[str],
     if category:
         where.append("p.category = ?")
         args.append(category)
+    if short_terms:  # < 3 chars, too short for trigrams: every token must start a word in some name
+        conn.create_function("fold", 1, lambda v: (v or "").casefold(), deterministic=True)  # SQLite-only
+        for t in short_terms:
+            like = t.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            where.append("(" + " OR ".join(
+                f"(fold(p.{c}) LIKE ? ESCAPE '\\' OR fold(p.{c}) LIKE ? ESCAPE '\\')"
+                for c in ("name_fi", "name_en", "name_sv")) + ")")
+            args += [x for _ in range(3) for x in (like + "%", "% " + like + "%")]
     cond = (" WHERE " + " AND ".join(where)) if where else ""
     if terms:
         match = " OR ".join('"' + t.replace('"', '""') + '"' for t in terms)
@@ -189,7 +205,7 @@ def search_rows(conn: sqlite3.Connection, terms: list[str], claims: list[str],
                f"WHERE products_fts MATCH ?" + (" AND " + " AND ".join(where) if where else "") +
                " ORDER BY bm25 LIMIT ?")
         return conn.execute(sql, [match, *args, candidates]).fetchall()
-    return conn.execute(f"SELECT p.*, 0.0 AS bm25 FROM products p{cond} ORDER BY p.id LIMIT ?",
+    return conn.execute(f"SELECT p.*, -1.0 AS bm25 FROM products p{cond} ORDER BY p.id LIMIT ?",
                         [*args, candidates]).fetchall()
 
 

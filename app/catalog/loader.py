@@ -64,7 +64,10 @@ def parse_name_content(name: str | None) -> tuple[float, int, str] | None:
     if not name or _LEADING_COUNT.match(name):
         return None
     found = set()
-    for count, num, unit in _SIZE.findall(name):
+    for m in _SIZE.finditer(name):
+        if re.search(r"\d\s*/\s*$", name[:m.start(2)]):
+            return None  # "1/20 L" is a fraction or a ratio, not a size
+        count, num, unit = m.groups()
         kind, factor = _NAME_UNITS[unit.lower()]
         found.add((round(float(num.replace(",", ".")) * factor, 6), int(count or 1), kind))
     return found.pop() if len(found) == 1 else None
@@ -76,33 +79,41 @@ def _amount(m: dict | None, table: dict) -> float | None:
     return None
 
 
-def content_per_sales_unit(raw: dict, names: list[str | None]) -> tuple[float | None, str | None]:
-    """(content, 'L'|'KG') per sales unit, or (None, None) when unknown."""
+def content_per_sales_unit(raw: dict, names: list[str | None]) -> tuple[float | None, str | None, int]:
+    """(content, 'L'|'KG', confirmed) per sales unit; (None, None, 0) when unknown. `confirmed` is 1
+    when the product name states a size that agrees with the value (so it is a real pack size and not
+    just a packaging figure from unitConversions)."""
     if raw["salesUnit"] == raw.get("baseUnit"):
         n_base = 1.0
     else:
         n_base = next((u.get("sizeInBaseUnits") for u in raw.get("units", [])
                        if u["unitId"] == raw["salesUnit"]), None)
     if not n_base:
-        return None, None
-    base = None  # (content per base unit, kind)
+        return None, None, 0
+    uc = None  # content per base unit from unitConversions, (amount, kind)
     for u in raw.get("synkkaData", {}).get("unitConversions") or []:
         if u.get("synkkaPackagingType") == "BASE_UNIT_OR_EACH":
             if (v := _amount(u.get("volume"), _VOLUME)) is not None:
-                base = (v, "L")
+                uc = (v, "L")
             elif (w := _amount(u.get("netWeight"), _WEIGHT)) is not None:
-                base = (w, "KG")
-    if base is not None:
-        return round(base[0] * n_base, 6), base[1]
+                uc = (w, "KG")
+    from_uc = (round(uc[0] * n_base, 6), uc[1]) if uc else None
+    from_name = None
     for n in names:
         if (p := parse_name_content(n)) is not None:
             size, count, kind = p
             if count == 1:  # "10 l": one base unit holds this much
-                return round(size * n_base, 6), kind
-            if n_base in (1, count):  # "12x250 ml": the name describes the whole pack
-                return round(size * count, 6), kind
-            return None, None  # multipack that doesn't line up with the unit structure
-    return None, None
+                from_name = (round(size * n_base, 6), kind)
+            elif n_base in (1, count):  # "12x250 ml": the name describes the whole pack
+                from_name = (round(size * count, 6), kind)
+            break  # an unclear multipack stays unknown from the name
+    # unitConversions can hold gross/shipping figures (a 500 ml bowl as 6 kg), so an unambiguous
+    # name wins when the two disagree in dimension or by more than 25%.
+    if from_uc and from_name and (from_uc[1] != from_name[1]
+                                  or not 0.75 <= from_uc[0] / from_name[0] <= 1 / 0.75):
+        return (*from_name, 1)
+    best = from_uc or from_name
+    return (*best, int(from_name is not None)) if best else (None, None, 0)
 
 
 def normalize(raw: dict, reliability: dict[str, float], co2: dict[str, float]) -> dict:
@@ -112,7 +123,7 @@ def normalize(raw: dict, reliability: dict[str, float], co2: dict[str, float]) -
     allergens = _allergen_levels(synkka)
     names = synkka.get("names", [])
     ingredients = synkka.get("keyIngredients", [])
-    content, content_unit = content_per_sales_unit(raw, [_localized(names, "en"), _localized(names, "fi")])
+    content, content_unit, content_confirmed = content_per_sales_unit(raw, [_localized(names, "en"), _localized(names, "fi")])
     return {
         "product": {
             "id": pid,
@@ -134,6 +145,7 @@ def normalize(raw: dict, reliability: dict[str, float], co2: dict[str, float]) -
             "key_ingredients_en": _localized(ingredients, "en"),
             "content_per_sales_unit": content,
             "content_unit": content_unit,
+            "content_confirmed": content_confirmed,
         },
         "claims": sorted({v["id"] for v in _classification(synkka, "nutritionalClaim")}),
         "allergens": sorted(allergens.items()),
