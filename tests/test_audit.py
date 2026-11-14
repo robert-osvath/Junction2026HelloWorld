@@ -167,3 +167,43 @@ def test_db_connections_time_out_instead_of_hanging_on_a_dead_socket():
     from app.db import connect_args
     a = connect_args("mysql://aimo:aimo@127.0.0.1:3306/aimo")
     assert (a["connect_timeout"], a["read_timeout"], a["write_timeout"]) == (10, 15, 15)
+
+
+def test_concurrent_identical_drafts_create_only_one_order(monkeypatch):
+    """create-draft runs in worker threads: the duplicate check must hold under concurrency."""
+    import threading
+    import time
+    from datetime import date, timedelta
+    from fastapi import HTTPException
+    from app.experience import router as experience
+    from app.orders import flow
+    from app.orders.store import get_order_store
+    from contracts import Order
+
+    created = []
+
+    def slow_order(mandate, need, **_):
+        time.sleep(0.2)  # wide window between the duplicate check and the save
+        order = Order(id=f"order-race{len(created)}", mandate_id=mandate.id, need=need, lines=[], verdicts=[],
+                      status="pending_approval", confirmation_no=None, substitutes=[])
+        get_order_store().save(order)
+        created.append(order)
+        return order
+
+    monkeypatch.setattr(flow, "order_from_need", slow_order)
+    req = experience.CreateDraftRequest(buyer_name="Race buyer", product_intent="race milk", quantity=3, unit="L",
+                                        deliver_by=date.today() + timedelta(days=3))
+    outcomes = []
+
+    def run():
+        try:
+            outcomes.append(experience.create_draft(req).id)
+        except HTTPException as e:
+            outcomes.append(e.status_code)
+
+    threads = [threading.Thread(target=run) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(created) == 1 and sorted(map(str, outcomes))[0] == "409"

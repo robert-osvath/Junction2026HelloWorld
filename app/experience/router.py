@@ -8,6 +8,7 @@ approve or place an order.
 import json
 import logging
 import os
+import threading
 import re
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -423,8 +424,18 @@ def build_offers(req: OffersRequest) -> list[Offer]:
         conn.close()
 
 
+# The duplicate check and the order creation must not interleave: the route runs in a worker thread.
+# shortcut: one lock serialises all drafts (a few seconds each); per-buyer locks if many buyers order at once.
+_DRAFT_LOCK = threading.Lock()
+
+
 @router.post("/create-draft", response_model=Order)
 def create_draft(request: CreateDraftRequest) -> Order:
+    with _DRAFT_LOCK:
+        return _create_draft(request)
+
+
+def _create_draft(request: CreateDraftRequest) -> Order:
     """Create an order draft from an explicitly selected catalog product.
 
     Price, availability, and package quantity are rebuilt from the Valio Aimo
