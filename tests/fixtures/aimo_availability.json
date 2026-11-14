@@ -1,0 +1,44 @@
+{
+ "timeNow": "2026-11-14T12:18:25+0200",
+ "requestedDate": "2026-11-16T00:00:00+0200",
+ "products": [
+  {
+   "productId": "463038",
+   "closingTime": "2026-11-12T15:00:00+0200",
+   "salesBlock": false,
+   "logisticModel": "Terminal",
+   "scheduleLines": [
+    {
+     "salesBlock": false,
+     "availableAmount": 999999.0,
+     "availableDate": "2026-11-16",
+     "salesUnit": "KI"
+    }
+   ]
+  },
+  {
+   "productId": "460000",
+   "closingTime": "2026-11-15T17:00:00+0200",
+   "salesBlock": false,
+   "logisticModel": "Stock",
+   "scheduleLines": [
+    {
+     "salesBlock": false,
+     "availableAmount": 48.0,
+     "availableDate": "2026-11-16",
+     "salesUnit": "RAS"
+    }
+   ]
+  },
+  {
+   "productId": "460004",
+   "salesBlock": false,
+   "scheduleLines": []
+  },
+  {
+   "productId": "999999999",
+   "salesBlock": false,
+   "scheduleLines": []
+  }
+ ]
+}

@@ -8,6 +8,7 @@ Portability notes for the MariaDB move:
 DB path: env CATALOG_DB, default data/catalog.db (gitignored with the rest of data/).
 """
 import os
+import re
 import sqlite3
 from pathlib import Path
 from typing import Iterable
@@ -19,7 +20,8 @@ PRODUCT_COLUMNS = (
     "id", "name_fi", "name_en", "name_sv", "brand", "category", "vendor_name", "sales_unit",
     "base_unit", "allowed_lot_size", "country_of_origin", "temperature_condition",
     "has_allergen_data", "delivery_reliability", "co2_kg_per_kg",
-    "key_ingredients_fi", "key_ingredients_en",
+    "key_ingredients_fi", "key_ingredients_en", "content_per_sales_unit", "content_unit",
+    "content_confirmed",
 )
 
 SCHEMA = [
@@ -40,7 +42,10 @@ SCHEMA = [
         delivery_reliability  DOUBLE,             -- 0-1 from CSV, NULL if not listed
         co2_kg_per_kg         DOUBLE,             -- category average from CSV, NULL if not listed
         key_ingredients_fi    TEXT,
-        key_ingredients_en    TEXT
+        key_ingredients_en    TEXT,
+        content_per_sales_unit DOUBLE,            -- litres or kg per sales unit, NULL if unknown
+        content_unit          VARCHAR(2),         -- 'L' | 'KG' | NULL
+        content_confirmed     SMALLINT NOT NULL DEFAULT 0  -- 1 if the product name states a matching size
     )""",
     # nutritionalClaim ids, e.g. FREE_FROM_LACTOSE, VEGAN
     """CREATE TABLE IF NOT EXISTS product_claims (
@@ -79,9 +84,28 @@ SCHEMA = [
         FOREIGN KEY (product_id) REFERENCES products(id),
         FOREIGN KEY (substitute_id) REFERENCES products(id)
     )""",
+    # Gemini embeddings (float32, L2-normalised). Deliberately NOT in TABLES and without a foreign key:
+    # a catalog reload must not wipe paid-for vectors; stale rows are detected by text_hash.
+    """CREATE TABLE IF NOT EXISTS product_embeddings (
+        product_id VARCHAR(32) PRIMARY KEY,
+        model      VARCHAR(64) NOT NULL,
+        text_hash  CHAR(64) NOT NULL,
+        vector     BLOB NOT NULL
+    )""",
     "CREATE INDEX IF NOT EXISTS idx_claims_claim ON product_claims(claim)",
     "CREATE INDEX IF NOT EXISTS idx_allergens_code ON product_allergens(code, level)",
     "CREATE INDEX IF NOT EXISTS idx_products_category ON products(category)",
+]
+
+# Full-text index. The trigram tokenizer matches substrings, which is what Finnish compounds need
+# ("maito" in "kevytmaitojuoma"); remove_diacritics folds a/ä, o/ö. Rebuildable via rebuild_fts().
+FTS_COLUMNS = ("name_fi", "name_en", "name_sv", "brand", "key_ingredients_fi", "key_ingredients_en")
+# bm25 column weights (same order): names count far more than ingredients
+FTS_WEIGHTS = (10.0, 10.0, 4.0, 3.0, 1.0, 1.0)
+FTS_SCHEMA = [
+    "CREATE VIRTUAL TABLE IF NOT EXISTS products_fts USING fts5("
+    "id UNINDEXED, " + ", ".join(FTS_COLUMNS) + ", "
+    "tokenize = 'trigram remove_diacritics 1')",
 ]
 
 # children first, so deletes never violate foreign keys
@@ -101,9 +125,26 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")  # SQLite-only; MariaDB enforces FKs by default
-    for stmt in SCHEMA:
+    for stmt in SCHEMA + FTS_SCHEMA:
         conn.execute(stmt)
+    have = {r[1] for r in conn.execute("PRAGMA table_info(products)")}  # SQLite-only
+    for col, typ in (("content_per_sales_unit", "DOUBLE"), ("content_unit", "VARCHAR(2)"),
+                     ("content_confirmed", "SMALLINT NOT NULL DEFAULT 0")):
+        if col not in have:  # catalog.db built before T2: add the column, loader refills it
+            conn.execute(f"ALTER TABLE products ADD COLUMN {col} {typ}")
+    # existing catalog.db built before the FTS index existed: fill it
+    if conn.execute("SELECT count(*) FROM products_fts").fetchone()[0] == 0 and \
+            conn.execute("SELECT count(*) FROM products").fetchone()[0]:
+        rebuild_fts(conn)
     return conn
+
+
+def rebuild_fts(conn: sqlite3.Connection) -> None:
+    """(Re)build the full-text index from the products table."""
+    cols = ", ".join(FTS_COLUMNS)
+    with conn:
+        conn.execute("DELETE FROM products_fts")
+        conn.execute(f"INSERT INTO products_fts (id, {cols}) SELECT id, {cols} FROM products")
 
 
 def replace_catalog(conn: sqlite3.Connection, products: list[dict],
@@ -123,68 +164,139 @@ def replace_catalog(conn: sqlite3.Connection, products: list[dict],
         conn.executemany("INSERT INTO product_labels VALUES (?, ?)", labels)
         conn.executemany("INSERT INTO product_units VALUES (?, ?, ?)", units)
         conn.executemany("INSERT INTO substitutions VALUES (?, ?)", substitutions)
+    rebuild_fts(conn)
 
 
-def search_products(
-    conn: sqlite3.Connection,
-    *,
-    query: str = "",
-    claims: list[str] | None = None,
-    excluded_allergens: list[str] | None = None,
-    category: str = "",
-    limit: int = 20,
-) -> list[dict]:
-    """Search normalized catalog rows and return the fields exposed by the API.
+# --- search ---
 
-    Product metadata is always read from the imported Valio Aimo dataset. Price
-    and availability deliberately remain in the offer adapter because they are
-    separate synthetic feeds in this challenge.
-    """
-    claims = [value for value in (claims or []) if value]
-    excluded_allergens = [value for value in (excluded_allergens or []) if value]
-    where: list[str] = []
-    values: list[object] = []
-    terms = [term.strip().lower() for term in query.split() if term.strip()]
-    for term in terms:
-        like = f"%{term}%"
-        where.append("(lower(coalesce(p.name_fi, '')) LIKE ? OR lower(coalesce(p.name_en, '')) LIKE ? OR lower(coalesce(p.brand, '')) LIKE ? OR p.id = ?)")
-        values.extend((like, like, like, term))
+def query_tokens(q: str) -> list[str]:
+    return re.findall(r"\w+", q.casefold())
+
+
+def fts_terms(q: str) -> list[str]:
+    """Word tokens of a query usable by the trigram index (>= 3 chars)."""
+    return [t for t in query_tokens(q) if len(t) >= 3]
+
+
+def search_rows(conn: sqlite3.Connection, terms: list[str], claims: list[str],
+                exclude_allergens: list[str], category: str, candidates: int,
+                short_terms: list[str] = ()) -> list[sqlite3.Row]:
+    """Candidate products matching the filters, best bm25 first. With `terms`, a product matches if
+    ANY term occurs (as a substring, so compounds match); callers rerank on how many terms hit.
+    Without terms it is a filter-only browse (bm25 = -1, all equal). Rows carry `bm25` (lower = better)."""
+    where, args = [], []
+    if claims:
+        where.append(f"(SELECT count(*) FROM product_claims c WHERE c.product_id = p.id "
+                     f"AND c.claim IN ({','.join('?' * len(claims))})) = ?")
+        args += [*claims, len(set(claims))]
+    if exclude_allergens:
+        where.append(f"NOT EXISTS (SELECT 1 FROM product_allergens a WHERE a.product_id = p.id "
+                     f"AND a.level IN ('CONTAINS', 'MAY_CONTAIN') "
+                     f"AND a.code IN ({','.join('?' * len(exclude_allergens))}))")
+        args += exclude_allergens
     if category:
         where.append("p.category = ?")
-        values.append(category)
-    for claim in claims:
-        where.append("EXISTS (SELECT 1 FROM product_claims c WHERE c.product_id = p.id AND c.claim = ?)")
-        values.append(claim)
-    for allergen in excluded_allergens:
-        where.append("NOT EXISTS (SELECT 1 FROM product_allergens a WHERE a.product_id = p.id AND a.code = ? AND a.level IN ('CONTAINS', 'MAY_CONTAIN'))")
-        values.append(allergen)
-    sql = "SELECT p.* FROM products p"
-    if where:
-        sql += " WHERE " + " AND ".join(where)
-    sql += " ORDER BY lower(coalesce(p.name_en, p.name_fi)), p.id LIMIT ?"
-    values.append(max(1, min(limit, 100)))
-    rows = conn.execute(sql, values).fetchall()
-    result = []
-    for row in rows:
-        product_id = row["id"]
-        result.append({
-            "product_id": product_id,
-            "name": row["name_en"] or row["name_fi"] or product_id,
-            "vendor_name": row["vendor_name"],
-            "sales_unit": row["sales_unit"],
-            "category": row["category"],
-            "claims": [item[0] for item in conn.execute("SELECT claim FROM product_claims WHERE product_id = ? ORDER BY claim", (product_id,))],
-            "allergens_contains": [item[0] for item in conn.execute("SELECT code FROM product_allergens WHERE product_id = ? AND level = 'CONTAINS' ORDER BY code", (product_id,))],
-            "allergens_may_contain": [item[0] for item in conn.execute("SELECT code FROM product_allergens WHERE product_id = ? AND level = 'MAY_CONTAIN' ORDER BY code", (product_id,))],
-            "allergen_data": bool(row["has_allergen_data"]),
-        })
-    return result
+        args.append(category)
+    if short_terms:  # < 3 chars, too short for trigrams: every token must start a word in some name
+        conn.create_function("fold", 1, lambda v: (v or "").casefold(), deterministic=True)  # SQLite-only
+        for t in short_terms:
+            like = t.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            where.append("(" + " OR ".join(
+                f"(fold(p.{c}) LIKE ? ESCAPE '\\' OR fold(p.{c}) LIKE ? ESCAPE '\\')"
+                for c in ("name_fi", "name_en", "name_sv")) + ")")
+            args += [x for _ in range(3) for x in (like + "%", "% " + like + "%")]
+    cond = (" WHERE " + " AND ".join(where)) if where else ""
+    if terms:
+        match = " OR ".join('"' + t.replace('"', '""') + '"' for t in terms)
+        sql = (f"SELECT p.*, bm25(products_fts, 0, {', '.join(map(str, FTS_WEIGHTS))}) AS bm25 "
+               f"FROM products_fts JOIN products p ON p.id = products_fts.id "
+               f"WHERE products_fts MATCH ?" + (" AND " + " AND ".join(where) if where else "") +
+               " ORDER BY bm25 LIMIT ?")
+        return conn.execute(sql, [match, *args, candidates]).fetchall()
+    return conn.execute(f"SELECT p.*, -1.0 AS bm25 FROM products p{cond} ORDER BY p.id LIMIT ?",
+                        [*args, candidates]).fetchall()
 
 
-def products_by_id(conn: sqlite3.Connection, product_ids: list[str]) -> dict[str, dict]:
-    """Return normalized product metadata for a shortlist, keyed by product id."""
-    if not product_ids:
+def item_details(conn: sqlite3.Connection, ids: list[str]) -> dict[str, dict]:
+    """claims / allergen lists per product id, for mapping rows to CatalogItem."""
+    out = {i: {"claims": [], "contains": [], "may": []} for i in ids}
+    marks = ",".join("?" * len(ids))
+    if not ids:
+        return out
+    for r in conn.execute(f"SELECT product_id, claim FROM product_claims WHERE product_id IN ({marks}) "
+                          f"ORDER BY claim", ids):
+        out[r[0]]["claims"].append(r[1])
+    for r in conn.execute(f"SELECT product_id, code, level FROM product_allergens "
+                          f"WHERE product_id IN ({marks}) ORDER BY code", ids):
+        if r[2] == "CONTAINS":
+            out[r[0]]["contains"].append(r[1])
+        elif r[2] == "MAY_CONTAIN":
+            out[r[0]]["may"].append(r[1])
+    return out
+
+
+def offer_rows(conn: sqlite3.Connection, ids: list[str]) -> dict[str, dict]:
+    """Products by id, each with `size_in_base_units` of its sales unit (None if not listed)."""
+    if not ids:
         return {}
-    marks = ", ".join("?" for _ in product_ids)
-    rows = conn.execute(f"SELECT * FROM products WHERE id IN ({marks})", product_ids).fetchall()
-    return {row["id"]: dict(row) for row in rows}
+    marks = ",".join("?" * len(ids))
+    rows = conn.execute(
+        f"SELECT p.*, u.size_in_base_units FROM products p "
+        f"LEFT JOIN product_units u ON u.product_id = p.id AND u.unit_id = p.sales_unit "
+        f"WHERE p.id IN ({marks})", ids).fetchall()
+    return {r["id"]: dict(r) for r in rows}
+
+
+# --- embeddings ---
+
+def embedding_hashes(conn: sqlite3.Connection, model: str) -> dict[str, str]:
+    return {r[0]: r[1] for r in conn.execute(
+        "SELECT product_id, text_hash FROM product_embeddings WHERE model = ?", (model,))}
+
+
+def embedding_source_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    return conn.execute("SELECT id, name_en, name_fi, brand, key_ingredients_en FROM products ORDER BY id").fetchall()
+
+
+def upsert_embeddings(conn: sqlite3.Connection, rows: Iterable[tuple[str, str, str, bytes]]) -> None:
+    """rows: (product_id, model, text_hash, vector blob). Commits."""
+    with conn:
+        conn.executemany("INSERT OR REPLACE INTO product_embeddings (product_id, model, text_hash, vector) "
+                         "VALUES (?, ?, ?, ?)", list(rows))
+
+
+def embedding_count(conn: sqlite3.Connection, model: str) -> int:
+    return conn.execute("SELECT count(*) FROM product_embeddings WHERE model = ?", (model,)).fetchone()[0]
+
+
+def embedding_blobs(conn: sqlite3.Connection, model: str) -> list[tuple[str, bytes]]:
+    """(product_id, vector blob) for products that still exist, in id order."""
+    return [(r[0], r[1]) for r in conn.execute(
+        "SELECT e.product_id, e.vector FROM product_embeddings e JOIN products p ON p.id = e.product_id "
+        "WHERE e.model = ? ORDER BY e.product_id", (model,))]
+
+
+def db_file(conn: sqlite3.Connection) -> str | None:
+    """Path of the main database file, None for in-memory. SQLite-only."""
+    return conn.execute("PRAGMA database_list").fetchone()[2] or None
+
+
+def rows_by_ids(conn: sqlite3.Connection, ids: list[str], claims: list[str],
+                exclude_allergens: list[str], category: str) -> list[sqlite3.Row]:
+    """Products by id with the same filters as search_rows (bm25 = 0: no text match)."""
+    if not ids:
+        return []
+    where, args = [f"p.id IN ({','.join('?' * len(ids))})"], list(ids)
+    if claims:
+        where.append(f"(SELECT count(*) FROM product_claims c WHERE c.product_id = p.id "
+                     f"AND c.claim IN ({','.join('?' * len(claims))})) = ?")
+        args += [*claims, len(set(claims))]
+    if exclude_allergens:
+        where.append(f"NOT EXISTS (SELECT 1 FROM product_allergens a WHERE a.product_id = p.id "
+                     f"AND a.level IN ('CONTAINS', 'MAY_CONTAIN') "
+                     f"AND a.code IN ({','.join('?' * len(exclude_allergens))}))")
+        args += exclude_allergens
+    if category:
+        where.append("p.category = ?")
+        args.append(category)
+    return conn.execute(f"SELECT p.*, 0.0 AS bm25 FROM products p WHERE {' AND '.join(where)}", args).fetchall()

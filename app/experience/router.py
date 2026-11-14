@@ -19,13 +19,15 @@ from pydantic import BaseModel, Field
 from elevenlabs.client import ElevenLabs
 
 from app.mocks import load
-from app.catalog.aimo import build_offers
+from app.catalog import store as catalog_store
+from app.catalog.aimo import AimoError, get_client
+from app.catalog.offers import InvalidOfferRequest, get_offers
 from app.jury.router import evaluate
 from app.experience.vimo_agent import VIMO_ELEVENLABS_AGENT_ID
 from app.orders import service as order_service
 from app.orders.mandates import MANDATES
 from app.orders.store import get_order_store
-from contracts import JuryRequest, Need, OffersRequest, Order, OrderRequest
+from contracts import JuryRequest, Need, Offer, OffersRequest, Order, OrderRequest
 
 router = APIRouter(prefix="/experience", tags=["buyer experience"])
 logger = logging.getLogger(__name__)
@@ -337,6 +339,19 @@ async def prepare_decision(request: PrepareDecisionRequest) -> Order:
         need=load("need"),
         lines=[load("offer")],
     ))
+
+
+def build_offers(req: OffersRequest) -> list[Offer]:
+    """Live offers through P1's T4 offer builder: the same path as POST /offers."""
+    conn = catalog_store.connect()
+    try:
+        return get_offers(conn, get_client(), req)
+    except AimoError as exc:
+        raise HTTPException(status_code=502, detail="Valio Aimo API unavailable") from exc
+    except InvalidOfferRequest as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    finally:
+        conn.close()
 
 
 @router.post("/create-draft", response_model=Order)

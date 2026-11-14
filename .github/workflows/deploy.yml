@@ -20,6 +20,9 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --locked
       - run: uv run pytest -q
-      - name: modal deploy (skipped until MODAL_TOKEN_ID/SECRET repo secrets exist)
+      - name: build catalog + embeddings on the Modal volume (incremental)
+        if: ${{ env.MODAL_TOKEN_ID != '' }}
+        run: uv run modal run modal_app.py::build_catalog
+      - name: modal deploy
         if: ${{ env.MODAL_TOKEN_ID != '' }}
         run: uv run modal deploy modal_app.py

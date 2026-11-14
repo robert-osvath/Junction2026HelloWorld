@@ -1,0 +1,89 @@
+{
+ "customerId": "1",
+ "currency": "EUR",
+ "pricingDate": "2026-11-16T00:00:00+0200",
+ "products": [
+  {
+   "productId": "463038",
+   "quantity": 1.0,
+   "catalogPrice": {
+    "value": 31.31,
+    "valueWithTax": 35.54,
+    "validFrom": "2026-09-01T00:00:00+0300",
+    "validTo": "9999-12-31T00:00:00+0200",
+    "currency": "EUR"
+   },
+   "priceWithTax": {
+    "value": 35.54,
+    "validFrom": "2026-09-01T00:00:00+0300",
+    "validTo": "9999-12-31T00:00:00+0200",
+    "currency": "EUR"
+   },
+   "comparisonPrice": {
+    "value": 1.57,
+    "valueWithTax": 1.78,
+    "validFrom": "2026-09-01T00:00:00+0300",
+    "validTo": "9999-12-31T00:00:00+0200",
+    "currency": "EUR"
+   },
+   "comparisonUnit": "L",
+   "tax": {
+    "taxRate": 13.5,
+    "taxValue": 4.23
+   },
+   "listPrice": {
+    "value": 36.83,
+    "valueWithTax": 41.8,
+    "validFrom": "2026-09-01T00:00:00+0300",
+    "validTo": "9999-12-31T00:00:00+0200",
+    "currency": "EUR"
+   },
+   "netPriceFound": false,
+   "error": false
+  },
+  {
+   "productId": "460000",
+   "quantity": 1.0,
+   "catalogPrice": {
+    "value": 1.96,
+    "valueWithTax": 2.22,
+    "validFrom": "2026-09-01T00:00:00+0300",
+    "validTo": "9999-12-31T00:00:00+0200",
+    "currency": "EUR"
+   },
+   "priceWithTax": {
+    "value": 2.22,
+    "validFrom": "2026-09-01T00:00:00+0300",
+    "validTo": "9999-12-31T00:00:00+0200",
+    "currency": "EUR"
+   },
+   "comparisonPrice": {
+    "value": 4.9,
+    "valueWithTax": 5.56,
+    "validFrom": "2026-09-01T00:00:00+0300",
+    "validTo": "9999-12-31T00:00:00+0200",
+    "currency": "EUR"
+   },
+   "comparisonUnit": "KG",
+   "tax": {
+    "taxRate": 13.5,
+    "taxValue": 0.26
+   },
+   "listPrice": {
+    "value": 2.31,
+    "valueWithTax": 2.62,
+    "validFrom": "2026-09-01T00:00:00+0300",
+    "validTo": "9999-12-31T00:00:00+0200",
+    "currency": "EUR"
+   },
+   "netPriceFound": false,
+   "error": false
+  },
+  {
+   "productId": "999999999",
+   "quantity": 1.0,
+   "netPriceFound": false,
+   "error": true
+  }
+ ]
+}

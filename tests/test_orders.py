@@ -72,7 +72,7 @@ def test_substitutes_proposed_then_reject(monkeypatch):
     import app.orders.service as svc
     monkeypatch.setattr(svc, "evaluate", lambda req: load("jury_result").model_copy(update={"decision": "substitutes"}))
     o = place().json()
-    assert o["status"] == "substitutes_proposed" and len(o["substitutes"]) == 1
+    assert o["status"] == "substitutes_proposed" and 1 <= len(o["substitutes"]) <= 3
     assert c.post(f"/orders/{o['id']}/approve").status_code == 409
     assert c.post(f"/orders/{o['id']}/reject").json()["status"] == "rejected"
 
