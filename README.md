@@ -32,6 +32,20 @@ the working directory. Set `AIMO_API_URL` when the REST API is not at
 `http://127.0.0.1:8000`. The tools are `search_products`, `get_offers`,
 `place_order`, `get_order_status`, and `list_substitutes`.
 
+## Buyer demo (T10–T11)
+
+After the catalog setup above, run all three P3 scenarios with one command:
+
+```bash
+uv run python scripts/demo_runner.py
+```
+
+The runner starts a disposable local API with an in-memory order/audit store,
+then sends a natural-language hotel request through real stdio MCP tools and
+asserts an auto-order, a stock-out with ranked substitutes, and an over-budget
+order that a human approves. It also verifies the audit chain. Set
+`AIMO_API_URL` to run the same command against a deployed API.
+
 ### Vector search (T2)
 `/catalog/search` blends Gemini embeddings (stored in `product_embeddings`) with full-text search when the DB has embeddings and `GEMINI_API_KEY` is set; otherwise it is text-only. Build/refresh vectors with `uv run python -m app.catalog.embed` (resumable, only changed products). Common queries are pre-embedded in the background at startup (`app/catalog/warm.py`).
 Latency: < 200 ms for cached/pre-warmed queries; a new query pays one Gemini call (~0.3-0.5 s) and falls back to text-only if it exceeds `SEARCH_EMBED_TIMEOUT_S` (default 0.5).
