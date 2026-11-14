@@ -7,6 +7,12 @@ from typing import Any
 import httpx
 
 
+def demo_headers() -> dict[str, str]:
+    """X-Demo-Pass for an API behind the T16 passphrase gate (env DEMO_PASSPHRASE)."""
+    p = os.getenv("DEMO_PASSPHRASE")
+    return {"X-Demo-Pass": p} if p else {}
+
+
 class AimoAPIError(RuntimeError):
     """A concise error safe to surface to an MCP client."""
 
@@ -18,7 +24,7 @@ class AimoAPI:
 
     async def request(self, method: str, path: str, *, params: dict[str, Any] | None = None, body: dict[str, Any] | None = None) -> Any:
         owns_client = self._client is None
-        client = self._client if self._client is not None else httpx.AsyncClient(base_url=self._base_url, timeout=20.0)
+        client = self._client if self._client is not None else httpx.AsyncClient(base_url=self._base_url, timeout=20.0, headers=demo_headers())
         try:
             response = await client.request(method, path, params=params, json=body)
             response.raise_for_status()

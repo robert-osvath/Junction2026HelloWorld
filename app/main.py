@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 load_dotenv()  # before app imports read DB_URL and local API credentials
 
+from app.auth import gate, router as auth
 from app.catalog.router import router as catalog
 from app.experience.router import router as experience
 from app.jury.router import router as jury
@@ -23,13 +24,14 @@ async def lifespan(_app):
 
 
 app = FastAPI(title="Trusted Trade Agents", lifespan=lifespan)
+app.middleware("http")(gate)  # added before CORS so CORS wraps it (401s keep CORS headers)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in (os.getenv("CORS_ORIGINS") or "http://localhost:3000").split(",") if o.strip()],
     allow_methods=["*"],
     allow_headers=["*"],
 )
-for r in (catalog, jury, orders, experience):
+for r in (auth, catalog, jury, orders, experience):
     app.include_router(r)
 
 
@@ -51,15 +53,14 @@ def mount_game(target: FastAPI, game_dir: Path) -> bool:
 
 mount_game(app, GAME_DIR)
 
-COCKPIT_DIR = Path(__file__).resolve().parent.parent / "cockpit"  # Vimo buyer cockpit (local + desktop app)
+COCKPIT_DIR = Path(__file__).resolve().parent.parent / "web" / "public" / "vimo"  # Vimo buyer cockpit, also served by Vercel
 
 
 def mount_cockpit(target: FastAPI, cockpit_dir: Path) -> bool:
-    """Serve the Vimo cockpit at / from the same origin as the API. Mounted last: a mount at / matches
-    every path, so API routes and /game must be registered first. Absent in the Modal image -> skipped."""
+    """Serve the Vimo cockpit at /vimo (same path as on Vercel). Absent in the Modal image -> skipped."""
     if not cockpit_dir.is_dir():
         return False
-    target.mount("/", StaticFiles(directory=cockpit_dir, html=True), name="buyer-cockpit")
+    target.mount("/vimo", StaticFiles(directory=cockpit_dir, html=True), name="buyer-cockpit")
     return True
 
 
