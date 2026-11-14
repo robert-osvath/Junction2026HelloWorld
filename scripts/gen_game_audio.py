@@ -1,4 +1,4 @@
-"""Render web/game/audio/lines.json to mp3s with ElevenLabs (skips files that exist).
+"""Render web/public/game/audio/lines.json to mp3s with ElevenLabs (skips files that exist).
 
 uv run scripts/gen_game_audio.py --dry-run   # list what would be generated + char count
 uv run scripts/gen_game_audio.py [ids...]    # generate (all missing, or only the given ids; given ids are regenerated)
@@ -9,7 +9,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-AUDIO = Path(__file__).resolve().parent.parent / "web" / "game" / "audio"
+AUDIO = Path(__file__).resolve().parent.parent / "web" / "public" / "game" / "audio"
 
 
 def jobs(spec: dict) -> list[tuple[str, str, dict]]:
