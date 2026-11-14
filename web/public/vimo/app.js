@@ -25,8 +25,6 @@ let liveAnalyser = null;
 let microphoneMonitor = null;
 let elevenConversation = null;
 let elevenStarting = null;  // in-flight start: auto-start + button click must not open two sessions (two voices)
-let elevenIdleTimer = null;
-let elevenOnStandby = false;
 let elevenMicQueue = Promise.resolve();
 let elevenRecoveryTimer = null;
 let elevenRecoveryAttempts = 0;
@@ -40,11 +38,6 @@ const TURN_SILENCE_MS = 1200;
 const TURN_MAX_MS = 5000;
 const VOICE_DIAGNOSTICS_ENABLED = false;
 const recentVoiceEvents = new Map();
-
-function clearElevenIdleTimer() {
-  clearTimeout(elevenIdleTimer);
-  elevenIdleTimer = null;
-}
 
 function clearElevenRecovery() {
   clearTimeout(elevenRecoveryTimer);
@@ -80,27 +73,6 @@ function scheduleElevenRecovery() {
     elevenRecoveryTimer = null;
     startElevenLive().catch(scheduleElevenRecovery);
   }, delay);
-}
-
-function armElevenIdleTimer() {
-  clearElevenIdleTimer();
-  // Electron does not reliably expose the Web Speech wake listener. Parking
-  // there would disconnect the only working microphone path, so keep the
-  // ElevenLabs session live on those clients.
-  if (!hasBrowserSpeechRecognition()) return;
-  elevenIdleTimer = setTimeout(async () => {
-    const conversation = elevenConversation;
-    if (!conversation || liveRequest) return;
-    // Keep the established live session rather than tearing it down. A new
-    // signed URL plus WebRTC handshake made every wake-up feel slow and was a
-    // common source of the one-turn-only failure. The browser wake listener
-    // hears the next request while Vimo's stream is muted.
-    elevenOnStandby = true;
-    await setElevenMicMuted(true);
-    if (conversation !== elevenConversation) return;
-    setVimoState("Vimo is on standby", "Say “Hey Vimo” when you need me. I’ll also surface a real backend decision.");
-    startWakeListener();
-  }, 5000);
 }
 
 function el(tag, className, text) {
@@ -683,11 +655,13 @@ async function connectElevenLive() {
     onConnect: () => {
       clearElevenRecovery();
       elevenRecoveryAttempts = 0;
-      elevenOnStandby = false;
       setElevenMicMuted(false);
-      setListening();
+      // Keep this one live Gemini session open. The previous five-second
+      // hand-off to browser speech recognition muted the reliable audio stream
+      // and made Vimo appear deaf on many Vercel/browser combinations. The
+      // agent prompt itself is the wake gate, so it stays silent until called.
+      setListening("Say “Hey Vimo” followed by your request. I will stay quiet until then.");
       startBackendDecisionPolling();
-      armElevenIdleTimer();
     },
     onMessage: (event) => {
       const who = event?.source || event?.role;
@@ -698,7 +672,6 @@ async function connectElevenLive() {
     onModeChange: (event) => {
       const mode = typeof event === "string" ? event : event?.mode;
       if (mode === "speaking") {
-        clearElevenIdleTimer();
         // Laptop speakers can feed the agent's own voice back into the open
         // microphone. ElevenLabs then sees a false barge-in and cuts the
         // response short. Pause input only for the spoken turn; listening is
@@ -708,15 +681,12 @@ async function connectElevenLive() {
         setVimoState("Vimo is speaking", "Finishing this update, then listening again.");
       }
       if (mode === "listening") {
-        if (!elevenOnStandby) setElevenMicMuted(false);
+        setElevenMicMuted(false);
         hideCaption(2500);
         if ($("#vimo-title").textContent === "Vimo is speaking") setListening();
-        armElevenIdleTimer();
       }
     },
     onError: () => {
-      clearElevenIdleTimer();
-      elevenOnStandby = false;
       try { elevenConversation?.endSession(); } catch (_) { /* already closed */ }
       elevenConversation = null;
       hideCaption(0);
@@ -725,10 +695,8 @@ async function connectElevenLive() {
     },
     onDisconnect: () => {
       elevenConversation = null;
-      elevenOnStandby = false;
       hideCaption(0);
       clearTimeout(thinkingTimer);
-      clearElevenIdleTimer();
       // Keep backend polling running: order decisions must still reach the
       // buyer while live voice is recovering.
       scheduleElevenRecovery();
@@ -844,8 +812,6 @@ function hasBrowserSpeechRecognition() {
 async function sendElevenTurn(text) {
   const request = text.trim();
   if (!request) return;
-  clearElevenIdleTimer();
-  elevenOnStandby = false;
   stopWakeListener();
   setThinking(request);
   try {
