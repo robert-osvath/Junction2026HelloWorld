@@ -14,6 +14,7 @@ import logging
 import os
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
@@ -38,11 +39,18 @@ OverallDecision = Literal["auto_order", "human_approval", "substitutes", "reject
 
 # Published / benchmark pricing per 1M tokens (USD) for T8 cost comparison
 MODEL_PRICING_PER_1M: dict[str, tuple[float, float]] = {
-    "gemini-decision-1": (0.075, 0.0),         # 0 output tokens!
-    "gemini-3.5-flash-lite": (0.10, 0.40),
+    "gemini-decision-1": (0.075, 0.0),         # Tier 1: Calibrated Decision API (0 output tokens!)
+    "gemma-4-26b-a4b-it": (0.08, 0.24),        # Tier 2: Open-weight Gemma 4 MoE (4B active params)
+    "gemini-3.5-flash-lite": (0.10, 0.40),     # Tier 2: Fast proprietary small LLM
+    "gemma-4-31b-it": (0.12, 0.36),            # Tier 2: Open-weight Gemma 4 Dense (31B params)
     "claude-haiku-4-5": (0.80, 4.00),
     "claude-sonnet-4-5": (3.00, 15.00),
 }
+
+TIER2_SMALL_LLM_PANEL: tuple[str, ...] = (
+    "gemini-3.5-flash-lite",
+    "gemma-4-26b-a4b-it",
+)
 
 
 @dataclass
@@ -305,6 +313,7 @@ def evaluate_with_gemini_decision(
     catalog_items: dict[str, CatalogItem] | None = None,
     now: datetime | None = None,
     live_api: bool = False,
+    run_tier2_panel: bool = False,
 ) -> EvaluationMetrics:
     """Evaluate using `gemini-decision-1` (Calibrated Decisions API, 0 output tokens) + Tier 0 gates."""
     t0 = time.perf_counter()
@@ -407,14 +416,15 @@ def evaluate_with_gemini_decision(
     verdicts = [tier0, h_spec, h_deliv, h_cost]
     jury_res = aggregate_verdicts(mandate, offers, verdicts)
     if jury_res.decision == "human_approval":
-        for idx, v in enumerate(verdicts):
-            if v.juror != "tier0" and (v.decision == "escalate" or v.confidence < 0.80):
-                summary_line = (
-                    f"Tier 2 escalation summary: hold for {mandate.buyer_name} sign-off "
-                    f"({v.juror} confidence {v.confidence:.0%})"
-                )
-                if summary_line not in v.reasons:
-                    verdicts[idx] = v.model_copy(update={"reasons": [*v.reasons, summary_line]})
+        verdicts = _run_tier2_small_llm_panel(
+            mandate=mandate,
+            need=need,
+            offers=offers,
+            catalog_items=catalog_items,
+            verdicts=verdicts,
+            now=now,
+            live_api=live_api and run_tier2_panel,
+        )
         jury_res = jury_res.model_copy(update={"verdicts": verdicts})
     latency_ms = (time.perf_counter() - t0) * 1000.0
     in_rate, _ = MODEL_PRICING_PER_1M[model_name]
@@ -440,14 +450,79 @@ def evaluate_with_gemini_decision(
     )
 
 
+def _run_tier2_small_llm_panel(
+    mandate: Mandate,
+    need: Need,
+    offers: list[Offer],
+    catalog_items: dict[str, CatalogItem] | None,
+    verdicts: list[Verdict],
+    now: datetime | None = None,
+    live_api: bool = False,
+) -> list[Verdict]:
+    """Tier 2 Fallback Jury: polls multiple distinct small LLMs (e.g. gemini-3.5-flash-lite + gemma-4-26b-a4b-it)
+    when Tier 1 (gemini-decision-1) escalates or has low confidence (< 0.75)."""
+    panel_results: dict[str, JuryResult] = {}
+    if live_api:
+        def _call_panel_member(m_name: str) -> tuple[str, JuryResult]:
+            res = evaluate_with_generative_llm(
+                m_name,  # type: ignore[arg-type]
+                mandate,
+                need,
+                offers,
+                catalog_items=catalog_items,
+                now=now,
+                live_api=True,
+                attach_tier2_summary=False,
+            )
+            return m_name, res.result
+
+        with ThreadPoolExecutor(max_workers=len(TIER2_SMALL_LLM_PANEL)) as pool:
+            for m_name, j_res in pool.map(_call_panel_member, TIER2_SMALL_LLM_PANEL):
+                panel_results[m_name] = j_res
+
+    updated_verdicts = list(verdicts)
+    for idx, v in enumerate(updated_verdicts):
+        if v.juror != "tier0" and (v.decision == "escalate" or v.confidence < 0.75):
+            if panel_results:
+                votes_str_parts: list[str] = []
+                extra_note = ""
+                for m_name, p_res in panel_results.items():
+                    pv = next((x for x in p_res.verdicts if x.juror == v.juror), None)
+                    if pv:
+                        votes_str_parts.append(f"{m_name}={pv.decision}")
+                        if not extra_note and pv.reasons:
+                            extra_note = f" — {pv.reasons[0]}"
+                votes_str = ", ".join(votes_str_parts)
+                summary_line = (
+                    f"Tier 2 escalation summary [{votes_str}]: hold for {mandate.buyer_name} sign-off "
+                    f"({v.juror} confidence {v.confidence:.0%}){extra_note}"
+                )
+            else:
+                panel_names = "+".join(TIER2_SMALL_LLM_PANEL)
+                summary_line = (
+                    f"Tier 2 escalation summary [{panel_names}]: hold for {mandate.buyer_name} sign-off "
+                    f"({v.juror} confidence {v.confidence:.0%})"
+                )
+            if not any(r.startswith("Tier 2 escalation summary") for r in v.reasons):
+                updated_verdicts[idx] = v.model_copy(update={"reasons": [*v.reasons, summary_line]})
+    return updated_verdicts
+
+
 def evaluate_with_generative_llm(
-    model_name: Literal["gemini-3.5-flash-lite", "claude-haiku-4-5", "claude-sonnet-4-5"],
+    model_name: Literal[
+        "gemini-3.5-flash-lite",
+        "gemma-4-26b-a4b-it",
+        "gemma-4-31b-it",
+        "claude-haiku-4-5",
+        "claude-sonnet-4-5",
+    ],
     mandate: Mandate,
     need: Need,
     offers: list[Offer],
     catalog_items: dict[str, CatalogItem] | None = None,
     now: datetime | None = None,
     live_api: bool = False,
+    attach_tier2_summary: bool = True,
 ) -> EvaluationMetrics:
     """Evaluate using a generative LLM returning structured JSON Verdicts + reasons."""
     t0 = time.perf_counter()
@@ -465,7 +540,7 @@ def evaluate_with_generative_llm(
             "'confidence': float, 'reasons': [str]}."
         )
         text = ""
-        if model_name.startswith("gemini"):
+        if model_name.startswith(("gemini", "gemma")):
             api_key = _get_env_key("GEMINI_API_KEY", "GOOGLE_API_KEY")
             if api_key and not api_key.startswith("sk_"):
                 try:
@@ -476,7 +551,11 @@ def evaluate_with_generative_llm(
                         model=model_name,
                         system_instruction=system_prompt,
                         input=prompt_text,
-                        generation_config={"temperature": 0.0},
+                        generation_config={
+                            "temperature": 0.0,
+                            "thinking_level": "minimal",
+                            "max_output_tokens": 250,
+                        },
                     )
                     text = interaction.output_text or ""
                     if getattr(interaction, "usage", None):
@@ -532,9 +611,9 @@ def evaluate_with_generative_llm(
 
     verdicts = [tier0, h_spec, h_deliv, h_cost]
     jury_res = aggregate_verdicts(mandate, offers, verdicts)
-    if jury_res.decision == "human_approval":
+    if attach_tier2_summary and jury_res.decision == "human_approval":
         for idx, v in enumerate(verdicts):
-            if v.juror != "tier0" and (v.decision == "escalate" or v.confidence < 0.80):
+            if v.juror != "tier0" and (v.decision == "escalate" or v.confidence < 0.75):
                 summary_line = (
                     f"Tier 2 escalation summary: hold for {mandate.buyer_name} sign-off "
                     f"({v.juror} confidence {v.confidence:.0%})"
