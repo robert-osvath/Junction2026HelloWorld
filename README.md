@@ -26,13 +26,13 @@ Note: Valio Aimo delivers nothing before Monday 2026-11-16, so pick Monday or la
 | Problem with letting AI buy | What we do |
 | --- | --- |
 | A model hallucinates an allergen-safe product | **Tier 0 gates in code** (`app/jury/gates.py`): banned GS1 allergens, required claims, budget, sales block, delivery date and order cut-off. No model can override them. |
-| Fuzzy questions ("is this really *milk*?") | **Tier 1 jurors** (spec, delivery, cost, sustainability) on a calibrated decision model. When confidence is low, a **Tier 2 panel** gets a second opinion, and then a **human**. |
+| Fuzzy questions ("is this really *milk*?") | **Tier 1 jurors** (spec, delivery, cost, plus an advisory sustainability juror) on a calibrated decision model. When confidence is low, a **Tier 2** small LLM gives a second opinion, and then a **human** decides. |
 | "Trust me, it was ordered" | Every request, verdict, decision and approval is appended to a **SHA-256 hash chain** in MariaDB system-versioned tables. `GET /audit/verify` detects any edit or deletion. |
 | Agents that do things nobody asked for | **Buyer policy** with auto-approve limit, budget, required claims, banned allergens and whether substitutes are allowed. Unknown claims are rejected when saved. |
 | Pack-size maths errors | Quantities come from Valio's own units and comparison prices, e.g. 1,000 L of Valio Eila = **50 cases, €1,565.50**, not 51. |
 | Duplicate or runaway orders | A duplicate guard per buyer, product, quantity and date, which holds under concurrent requests. |
 
-**Jury benchmark** (20 hand-labelled substitution and anomaly cases, [`docs/t8_benchmark_results.md`](docs/t8_benchmark_results.md)): 100% gold agreement and **0 unsafe approvals out of 6 safety-critical cases** across all models, because the safety rules live in Tier 0 code. The calibrated decision juror costs about $0.02 per 1,000 evaluations.
+**Jury benchmark** (20 hand-labelled substitution and anomaly cases, [`docs/t8_benchmark_results.md`](docs/t8_benchmark_results.md)): 100% gold agreement and **0 unsafe approvals out of 6 safety-critical cases** across all models, because the safety rules live in Tier 0 code. The calibrated decision juror costs about $0.02–0.025 per 1,000 evaluations.
 
 ## How it works
 
@@ -44,7 +44,7 @@ flowchart LR
     M --> API
     subgraph API[FastAPI on Modal]
       C[Catalog search<br/>FTS + vectors] --> O[Live offers<br/>Valio price + availability]
-      O --> J{Jury<br/>T0 code · T1 jurors · T2 panel}
+      O --> J{Jury<br/>T0 code · T1 jurors · T2 second opinion}
       J -->|auto_order| P[Placed]
       J -->|human_approval| H[Approval inbox]
       J -->|substitutes| S[Ranked substitutes]
@@ -68,16 +68,16 @@ flowchart LR
 
 ```bash
 brew install uv python@3.12
-cp .env.example .env                  # VALIO_API_KEY (+ GEMINI_API_KEY for AI jurors and vector search)
+cp .env.example .env                  # VALIO_API_KEY (+ GEMINI_API_KEY for AI jurors and vector search); blank DB_URL for in-memory, or start MariaDB below
 uv sync
 uv run scripts/download_data.py       # products, schema, delivery reliability, carbon CSVs -> data/
 uv run python -m app.catalog.loader   # -> data/catalog.db (~1 s, 17,546 products)
 uv run uvicorn app.main:app --reload  # http://localhost:8000/docs · cockpit at http://localhost:8000/vimo/
-uv run pytest -q                      # 296 tests
+uv run pytest -q                      # 300+ tests
 uv run python scripts/demo_runner.py  # end-to-end: NL request -> MCP tools -> auto-order, stock-out, over-budget approval, audit verify
 ```
 
-Without `DB_URL` the orders and audit log live in memory. `docker compose -f db/docker-compose.yml up -d` gives a local MariaDB.
+With `DB_URL` blank the orders and audit log live in memory; with the `.env.example` value, start the local MariaDB first: `docker compose -f db/docker-compose.yml up -d`.
 
 ## Repository map
 
