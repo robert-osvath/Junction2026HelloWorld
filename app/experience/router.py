@@ -367,13 +367,13 @@ async def create_draft(request: CreateDraftRequest) -> Order:
     Price, availability, and package quantity are rebuilt from the Valio Aimo
     feeds immediately before deterministic jury and policy evaluation.
     """
-    # GS1 allergen codes (AM milk, AW gluten, ...): a free-text "milk" would match nothing and silently ban nothing
     today = datetime.now(HELSINKI).date()
     if request.deliver_by < today:
         # LLM agents often resolve "by Monday" with their training year; say so, so the agent can retry
         raise HTTPException(status_code=422, detail=(
             f"Delivery date {request.deliver_by.isoformat()} is in the past. Today is "
             f"{today.strftime('%A')} {today.isoformat()}: recompute the date from today and try again."))
+    # GS1 allergen codes (AM milk, AW gluten, ...): a free-text "milk" would match nothing and silently ban nothing
     unknown = [code for code in request.banned_allergens if not re.fullmatch(r"[A-Z]{2}", code)]
     if unknown:
         raise HTTPException(status_code=422, detail=(

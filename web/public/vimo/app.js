@@ -587,13 +587,6 @@ async function connectElevenLive() {
     onConnect: () => {
       setListening();
       startBackendDecisionPolling();
-      // the agent's model does not know today's date and resolves "by Monday" in its training year
-      const today = new Date();
-      const iso = today.toLocaleDateString("en-CA", {timeZone: "Europe/Helsinki"});
-      const weekday = today.toLocaleDateString("en-GB", {weekday: "long", timeZone: "Europe/Helsinki"});
-      try {
-        elevenConversation?.sendContextualUpdate(`Today is ${weekday} ${iso} (Helsinki). Resolve relative dates such as "Monday" or "tomorrow" from today; deliver_by must be today or later, in YYYY-MM-DD.`);
-      } catch (_) { /* the backend also rejects past dates with today's date in the message */ }
     },
     onMessage: (event) => {
       const who = event?.source || event?.role;
@@ -628,6 +621,13 @@ async function connectElevenLive() {
       setVimoState("Vimo is offline", "Select Talk to Vimo to reconnect.");
     },
   });
+  // the agent's model does not know today's date and resolves "by Monday" in its training year
+  const now = new Date();
+  const iso = now.toLocaleDateString("en-CA", {timeZone: "Europe/Helsinki"});
+  const weekday = now.toLocaleDateString("en-GB", {weekday: "long", timeZone: "Europe/Helsinki"});
+  try {
+    elevenConversation.sendContextualUpdate(`Today is ${weekday} ${iso} (Helsinki). Resolve relative dates such as "Monday" or "tomorrow" from today; deliver_by must be today or later, in YYYY-MM-DD.`);
+  } catch (error) { console.warn("Could not send today's date to Vimo", error); }  // the backend also rejects past dates
 }
 
 async function startGeminiLive() {
