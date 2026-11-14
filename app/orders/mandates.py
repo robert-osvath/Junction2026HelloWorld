@@ -5,4 +5,4 @@ from app.mocks import FIXTURES
 from contracts import Mandate
 
 MANDATES = {m.id: m for m in (Mandate.model_validate(json.loads((FIXTURES / f"{n}.json").read_text()))
-                              for n in ("mandate", "mandate_tight"))}
+                              for n in ("mandate", "mandate_tight", "mandate_hospital"))}
