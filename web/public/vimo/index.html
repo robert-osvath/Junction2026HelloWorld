@@ -3,95 +3,141 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#123b2a" />
+    <meta name="theme-color" content="#123d31" />
     <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" />
     <link rel="stylesheet" href="styles.css" />
-    <title>Aimo Purchase Control</title>
+    <title>Ask Vimo · Vimo by Aimo</title>
   </head>
   <body>
+    <a class="skip-link" href="#content">Skip to content</a>
     <div class="app-shell">
-      <header class="topbar">
-        <a class="brand" href="/">VIMO <span>BY AIMO</span></a>
-        <nav class="sitenav" aria-label="Main"><a href="/vimo/index.html">Order (Vimo)</a><a href="/approvals">Approvals</a><a href="/game/index.html">Pitch</a></nav>
-        <div class="live"><i></i> Vimo is monitoring</div>
-        <button class="voice-toggle" id="voice-toggle" aria-pressed="true">Voice updates on</button>
-        <button class="avatar" aria-label="Buyer profile">HM</button>
-      </header>
+      <!-- Static copy of the Next.js sidebar (web/app/components/Shell.tsx): keep the two in sync. -->
+      <aside class="sidebar" id="sidebar">
+        <a class="brand" href="/">
+          <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
+          <span><strong>VIMO</strong><small>Purchasing workspace</small></span>
+        </a>
+        <button class="mobile-close icon-button" id="menu-close" aria-label="Close menu">
+          <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m6 6 12 12M18 6 6 18" /></svg>
+        </button>
+        <nav aria-label="Primary navigation">
+          <p class="nav-label">Workspace</p>
+          <a href="/"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.8 12 3l9 7.8" /><path d="M5 9.6V21h14V9.6M9 21v-7h6v7" /></svg><span>Overview</span></a>
+          <a href="/setup"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 1.2 3.8L17 8l-3.8 1.2L12 13l-1.2-3.8L7 8l3.8-1.2L12 3Z" /></svg><span>Getting started</span></a>
+          <a href="/sourcing"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></svg><span>Sourcing</span></a>
+          <a href="/jury"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8" /></svg><span>Jury decisions</span></a>
+          <a href="/approvals"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6" /></svg><span>Approval inbox</span></a>
+          <a href="/timeline"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5M12 7v5l3 2" /></svg><span>Audit timeline</span></a>
+          <a href="/game/index.html"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M7 4v16l13-8L7 4Z" /></svg><span>Pitch: The Milk Run</span></a>
+        </nav>
+        <div class="sidebar-help active">
+          <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 1.2 3.8L17 8l-3.8 1.2L12 13l-1.2-3.8L7 8l3.8-1.2L12 3Z" /></svg>
+          <strong>Ask Vimo AI</strong>
+          <p>You are here. Talk or type; Vimo drafts orders inside your rules.</p>
+        </div>
+        <div class="profile">
+          <span class="avatar peach" id="profile-initials" aria-hidden="true">B</span>
+          <div><strong id="profile-name">No buyer rules yet</strong><small id="profile-role">Set them with Purchasing rules</small></div>
+        </div>
+      </aside>
 
-      <main>
-        <section class="hero">
-          <div>
-            <p class="eyebrow">YOUR VOICE PURCHASING AGENT</p>
-            <h1>Just tell Vimo<br><em>what your kitchen needs.</em></h1>
-            <p class="lede" id="policy-copy">Vimo watches your inventory, checks every option and calls you only when a human decision is needed.</p>
+      <div class="app-main">
+        <header class="app-header">
+          <button class="menu-button icon-button" id="menu-open" aria-label="Open menu" aria-expanded="false" aria-controls="sidebar">
+            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+          </button>
+          <div class="breadcrumb"><span>Vimo</span><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m9 18 6-6-6-6" /></svg><strong>Ask Vimo AI</strong></div>
+          <div class="header-actions">
+            <button class="secondary small" id="voice-toggle" aria-pressed="true">Voice updates on</button>
+            <a class="primary small" href="/approvals?status=pending_approval">Approval inbox</a>
           </div>
-          <button class="primary" id="start-vimo">Talk to Vimo <span>●</span></button>
-        </section>
+        </header>
 
-        <section class="vimo-call" aria-live="polite">
-          <div class="vimo-orb" id="vimo-orb"><i></i><i></i><i></i></div>
-          <div><p class="eyebrow">VIMO VOICE LINE</p><h2 id="vimo-title">Vimo is ready when you are</h2><p id="vimo-status">Start once to allow microphone access. After that, Vimo can guide setup and read important updates aloud.</p><p class="voice-presence" id="voice-presence" aria-live="polite">● Microphone standby</p></div>
-          <button class="secondary" id="open-rules">Purchasing rules</button>
-        </section>
-
-        <form class="ask-form" id="ask-form">
-          <label for="ask-input">Type to Vimo</label>
-          <input id="ask-input" autocomplete="off" placeholder="e.g. Order 1,000 L lactose-free milk by Monday" />
-          <button class="primary" type="submit">Send</button>
-        </form>
-
-        <section class="approval-banner" id="approval-banner" hidden>
-          <div class="approval-symbol">!</div>
-          <div>
-            <p class="eyebrow">HUMAN APPROVAL REQUIRED</p>
-            <h2 id="approval-title">Order needs your decision</h2>
-            <p id="approval-detail"></p>
-          </div>
-          <div class="approval-actions">
-            <button class="secondary" id="voice-decision">Use voice</button>
-            <button class="secondary" id="reject-order">Reject</button>
-            <button class="primary" id="approve-order">Approve order</button>
-          </div>
-        </section>
-
-        <section class="metrics" aria-label="Your orders with Vimo">
-          <a class="metric-link" href="/approvals"><article><p>Orders with Vimo</p><strong id="m-orders">0</strong><span>drafted from this cockpit</span></article></a>
-          <a class="metric-link" href="/approvals?status=placed"><article><p>Placed</p><strong class="good" id="m-placed">€0</strong><span id="m-placed-n">0 orders</span></article></a>
-          <a class="metric-link" href="/approvals?status=pending_approval"><article><p>Awaiting approval</p><strong class="warn" id="m-pending">0</strong><span>held by the jury</span></article></a>
-          <a class="metric-link" href="/approvals?status=substitutes_proposed"><article><p>Substitutes proposed</p><strong id="m-subs">0</strong><span>pick one to order</span></article></a>
-        </section>
-
-        <section class="grid">
-          <article class="panel decision-panel">
-            <div class="panel-heading">
-              <div><p class="eyebrow">CURRENT DECISION</p><h2 id="decision-title">No order yet</h2></div>
-              <span class="status" id="decision-status">Waiting</span>
+        <main id="content" class="content">
+          <section class="ai-page-heading">
+            <div>
+              <p class="eyebrow">Purchasing copilot</p>
+              <h1>Ask Vimo AI</h1>
+              <p id="policy-copy">Tell Vimo what your kitchen needs. The jury checks every option, and you are called only when a person must decide.</p>
             </div>
-            <p class="request" id="decision-request">Ask Vimo for what you need. The live order and the jury’s verdicts appear here.</p>
-            <div class="jury" id="jury-list"></div>
-            <div class="recommendation">
-              <div><p class="eyebrow">RECOMMENDATION</p><h3 id="rec-name">—</h3><p id="rec-detail"></p></div>
-              <button class="text-button" id="speak-update">Hear update ↗</button>
+            <button class="secondary" id="open-rules">Purchasing rules</button>
+          </section>
+
+          <section class="ai-stage" id="vimo-stage" data-state="standby" aria-live="polite">
+            <div class="ai-status-orb" id="vimo-orb" aria-hidden="true"><i></i><i></i><i></i></div>
+            <div class="ai-status-copy">
+              <p class="eyebrow">Vimo voice line</p>
+              <h2 id="vimo-title">Vimo is ready when you are</h2>
+              <p id="vimo-status">Start once to allow microphone access. After that, Vimo can guide setup and read important updates aloud.</p>
             </div>
-            <div class="substitute-list" id="substitute-list" hidden></div>
-          </article>
+            <div class="vimo-wave" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+            <p class="voice-presence" id="voice-presence">● Microphone standby</p>
+            <div class="ai-actions"><button class="primary ai-main-action" id="start-vimo">Talk to Vimo</button></div>
+          </section>
 
-          <article class="panel activity-panel">
-            <div class="panel-heading"><div><p class="eyebrow">DECISION RECORD</p><h2>Today’s activity</h2></div><button class="text-button" id="end-day">End-of-day summary ↗</button></div>
-            <ol class="timeline" id="timeline"></ol>
-          </article>
-        </section>
+          <form class="ask-form" id="ask-form">
+            <label for="ask-input">Type to Vimo</label>
+            <input id="ask-input" autocomplete="off" placeholder="e.g. Order 1,000 L lactose-free milk by Monday" />
+            <button class="primary" type="submit">Send</button>
+          </form>
 
-        <section class="panel inventory-panel">
-          <div class="panel-heading"><div><p class="eyebrow">ORDER WATCH</p><h2>Your orders with Vimo</h2></div><a class="text-button" href="/approvals">All approvals ↗</a></div>
-          <div id="order-watch"></div>
-        </section>
-      </main>
+          <section class="approval-banner" id="approval-banner" hidden>
+            <div class="approval-symbol" aria-hidden="true">!</div>
+            <div>
+              <p class="eyebrow">Human approval required</p>
+              <h2 id="approval-title">Order needs your decision</h2>
+              <p id="approval-detail"></p>
+            </div>
+            <div class="approval-actions">
+              <button class="secondary" id="voice-decision">Use voice</button>
+              <button class="danger-button" id="reject-order">Reject</button>
+              <button class="primary" id="approve-order">Approve order</button>
+            </div>
+          </section>
+
+          <section class="metrics" aria-label="Your orders with Vimo">
+            <a class="metric-link lime-card" href="/sourcing"><p>Orders with Vimo</p><strong id="m-orders">0</strong><span>drafted from this page</span></a>
+            <a class="metric-link cream-card" href="/sourcing?status=placed"><p>Placed</p><strong id="m-placed">€0</strong><span id="m-placed-n">0 orders</span></a>
+            <a class="metric-link peach-card" href="/approvals?status=pending_approval"><p>Awaiting approval</p><strong id="m-pending">0</strong><span>held by the jury</span></a>
+            <a class="metric-link sand-card" href="/jury"><p>Substitutes proposed</p><strong id="m-subs">0</strong><span>pick one to order</span></a>
+          </section>
+
+          <section class="grid">
+            <article class="panel decision-panel">
+              <div class="panel-heading">
+                <div><p class="eyebrow">Current decision</p><h2 id="decision-title">No order yet</h2></div>
+                <span class="status" id="decision-status">Waiting</span>
+              </div>
+              <p class="request" id="decision-request">Ask Vimo for what you need. The live order and the jury’s verdicts appear here.</p>
+              <div class="jury" id="jury-list"></div>
+              <div class="recommendation">
+                <div><p class="eyebrow">Recommendation</p><h3 id="rec-name">—</h3><p id="rec-detail"></p></div>
+                <button class="text-button" id="speak-update">Hear update</button>
+              </div>
+              <div class="substitute-list" id="substitute-list" hidden></div>
+            </article>
+
+            <article class="panel activity-panel">
+              <div class="panel-heading"><div><p class="eyebrow">Decision record</p><h2>Today’s activity</h2></div><button class="text-button" id="end-day">End-of-day summary</button></div>
+              <ol class="timeline" id="timeline"></ol>
+            </article>
+          </section>
+
+          <section class="panel inventory-panel">
+            <div class="panel-heading"><div><p class="eyebrow">Order watch</p><h2>Your orders with Vimo</h2></div><a class="text-button" href="/sourcing">All orders</a></div>
+            <div id="order-watch"></div>
+          </section>
+        </main>
+      </div>
+      <div class="backdrop mobile" id="menu-backdrop" hidden></div>
     </div>
 
     <dialog id="rules-dialog">
       <form method="dialog" id="rules-form">
-        <div class="dialog-heading"><div><p class="eyebrow">PURCHASING RULES</p><h2>Set your purchasing rules</h2></div><button class="close" value="cancel" formnovalidate aria-label="Close">×</button></div>
+        <div class="dialog-heading"><div><p class="eyebrow">Purchasing rules</p><h2>Set your purchasing rules</h2></div><button class="close" value="cancel" formnovalidate aria-label="Close">×</button></div>
         <p class="dialog-copy">Sensible defaults already apply, so ordering works right away. The agent acts only inside these limits; edit them any time.</p>
         <div class="form-grid">
           <label>Buyer / location<input name="buyer" required value="My kitchen" /></label>
@@ -109,19 +155,19 @@
     </dialog>
 
     <dialog id="summary-dialog">
-      <div class="dialog-heading"><div><p class="eyebrow">END-OF-DAY BRIEFING</p><h2>Today, in plain language</h2></div><button class="close" id="close-summary" aria-label="Close">×</button></div>
+      <div class="dialog-heading"><div><p class="eyebrow">End-of-day briefing</p><h2>Today, in plain language</h2></div><button class="close" id="close-summary" aria-label="Close">×</button></div>
       <p class="summary-copy" id="summary-copy"></p>
-      <button class="primary" id="speak-summary">Read this aloud</button>
+      <div class="dialog-actions"><button class="primary" id="speak-summary">Read this aloud</button></div>
     </dialog>
     <dialog id="voice-dialog">
-      <div class="dialog-heading"><div><p class="eyebrow">VOICE DECISION</p><h2>Confirm what the agent heard</h2></div><button class="close" id="close-voice" aria-label="Close">×</button></div>
+      <div class="dialog-heading"><div><p class="eyebrow">Voice decision</p><h2>Confirm what the agent heard</h2></div><button class="close" id="close-voice" aria-label="Close">×</button></div>
       <p class="dialog-copy" id="voice-status">Listening for “approve this order” or “reject this order”…</p>
       <p class="voice-transcript" id="voice-transcript"></p>
       <dl class="decision-details" id="decision-details"></dl>
       <div class="dialog-actions"><button class="secondary" id="listen-again">Listen again</button><button class="primary" id="confirm-voice" disabled>Confirm decision</button></div>
     </dialog>
     <dialog id="suggestion-dialog">
-      <div class="dialog-heading"><div><p class="eyebrow">VIMO SUGGESTION</p><h2>Review before acting</h2></div><button class="close" id="close-suggestion" aria-label="Close">×</button></div>
+      <div class="dialog-heading"><div><p class="eyebrow">Vimo suggestion</p><h2>Review before acting</h2></div><button class="close" id="close-suggestion" aria-label="Close">×</button></div>
       <p class="dialog-copy" id="suggestion-copy"></p>
       <div class="dialog-actions"><button class="primary" id="acknowledge-suggestion">Got it</button></div>
     </dialog>
