@@ -270,8 +270,16 @@ def _evaluate_lines_heuristic(
 
 
 # Live LLM calls run inside POST /orders and /jury/evaluate: bound them so a hung API can't block an order.
-# On timeout the except-branch below falls back to the calibrated heuristic. Milliseconds (google-genai).
-GEMINI_TIMEOUT_MS = int(os.getenv("JURY_LLM_TIMEOUT_MS", "8000"))
+# On timeout the except-branch below falls back to the calibrated heuristic. Env JURY_LLM_TIMEOUT_MS, milliseconds.
+def _timeout_ms(default: int = 5000) -> int:
+    try:
+        value = int(os.getenv("JURY_LLM_TIMEOUT_MS", "").strip() or default)
+    except ValueError:
+        return default  # a typo in the env must never stop the app from importing
+    return value if value > 0 else default
+
+
+GEMINI_TIMEOUT_MS = _timeout_ms()  # 5 s: one order can chain two LLM calls (evaluate + substitutes)
 
 
 def _get_env_key(*names: str) -> str:
