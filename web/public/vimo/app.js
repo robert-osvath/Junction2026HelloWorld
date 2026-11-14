@@ -306,6 +306,7 @@ function setThinking(heard) {
 function setWorking(detail) {
   clearTimeout(thinkingTimer);
   setVimoState("Vimo is working", detail, true);
+  thinkingTimer = setTimeout(() => setListening(), 20000);  // never stuck if a tool or the agent goes quiet
 }
 
 const STATUS_LABEL = {
@@ -457,8 +458,13 @@ async function connectElevenLive() {
       search_catalog: async ({query, required_claims = []} = {}) => {
         if (!query?.trim()) return {products: [], message: "A product or category is required."};
         setWorking(`Searching the catalog for “${query}”…`);
-        const products = await searchBackendCatalog(query, required_claims);
-        return {products, source: "Valio Aimo catalog"};
+        try {
+          const products = await searchBackendCatalog(query, required_claims);
+          return {products, source: "Valio Aimo catalog"};
+        } catch (error) {
+          setListening(error.message);
+          return {products: [], message: error.message};
+        }
       },
       show_approval_popup: async () => {
         await refreshOrder();
@@ -524,6 +530,7 @@ async function connectElevenLive() {
       }
     },
     onError: () => {
+      try { elevenConversation?.endSession(); } catch (_) { /* already closed */ }
       elevenConversation = null;
       hideCaption(0);
       clearTimeout(thinkingTimer);
@@ -863,11 +870,8 @@ async function loadDecision() {
       .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
     myOrders = mine;
     renderMetrics();
-    if (mine[0]) {
-      state.approval = mine[0];
-      renderOrder(mine[0]);
-      startBackendDecisionPolling();
-    }
+    // shortcut: metrics only. An order from an earlier visit (or another visitor on the shared demo mandate)
+    // is never adopted, so voice tools can only act on an order drafted in this session; upgrade with per-buyer sessions.
   } catch (_) { /* empty state stays */ }
 }
 
@@ -898,7 +902,8 @@ $("#ask-form").addEventListener("submit", async (event) => {
     elevenConversation.sendUserMessage(/\bvimo\b/i.test(text) ? text : `Vimo, ${text}`);
     setThinking(text);
   } else {
-    processVimoCommand(text);
+    // the legacy chat path cannot draft orders: say so instead of pretending
+    setVimoState("Vimo is offline", "The live Vimo service is unavailable, so typed orders cannot be drafted right now. Try again in a moment.");
   }
 });
 $("#start-vimo").addEventListener("click", startVimo);
