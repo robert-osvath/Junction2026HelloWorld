@@ -12,7 +12,7 @@ from app.catalog import store
 from app.catalog.aimo import AimoError, get_client
 from app.catalog.offers import get_offers
 from app.orders import policies
-from app.orders.flow import _candidate_ids
+from app.orders.flow import candidate_ids
 from app.planning.substitutions import swaps_for
 from contracts import (
     EventPlanLine, EventPlanRequest, EventPlanResponse, Mandate, Need, Offer, OffersRequest, RecipeGap,
@@ -89,63 +89,76 @@ def standing_order_drift(request: StandingOrderDriftRequest) -> StandingOrderDri
     )
 
 
-def _late_reason(offers: list[Offer], need: Need, now: datetime) -> str | None:
-    """None when some offer arrives in time; otherwise why none does, in buyer words."""
-    if not offers:
-        return f"No priced, deliverable product found for {need.product_intent}."
-    if _in_time(offers, need, now):
-        return None
-    o = min(offers, key=lambda x: x.available_date)
+MAX_EVENT_INGREDIENTS = 25  # each costs up to 3 live lookups; keeps a plan inside the voice tool's 90 s timeout
+
+
+class TooManyIngredients(ValueError):
+    pass
+
+
+def _blocker(o: Offer, need: Need, now: datetime) -> str | None:
+    """Why this offer cannot be ordered now and arrive by the service date; None when it can."""
     if o.sales_block:
         return f"{o.name} is sales-blocked."
     if o.available_date > need.deliver_by:
         return f"Earliest delivery is {o.available_date.isoformat()}, after {need.deliver_by.isoformat()}."
     if o.closing_time is not None and now >= o.closing_time:
         return f"Order cut-off for {o.name} passed at {o.closing_time.astimezone(HELSINKI):%a %d.%m %H:%M}."
-    return f"{o.name} has no stock evidence for this quantity."
+    if o.evidence.stock == "none":
+        return f"{o.name} has no stock evidence for this quantity."
+    return None
 
 
-def _in_time(offers: list[Offer], need: Need, now: datetime) -> Offer | None:
-    """Cheapest offer that can still be ordered and arrives by the service date."""
-    ok = [o for o in offers
-          if not o.sales_block and o.available_date <= need.deliver_by
-          and (o.closing_time is None or now < o.closing_time) and o.evidence.stock != "none"]
-    return min(ok, key=lambda o: o.total_eur, default=None)
+def _source(offers: list[Offer], need: Need, now: datetime) -> tuple[Offer | None, str]:
+    """Cheapest offer that arrives in time, else None and why the earliest offer cannot."""
+    if not offers:
+        return None, (f"No live-priced product found for {need.quantity:g} {need.unit} {need.product_intent} "
+                      f"(no catalog match under the policy, or it is sold in another unit).")
+    ok = [o for o in offers if _blocker(o, need, now) is None]
+    if ok:
+        best = min(ok, key=lambda o: o.total_eur)
+        return best, f"{best.name} arrives {best.available_date.isoformat()}."
+    return None, _blocker(min(offers, key=lambda o: o.available_date), need, now)
 
 
-def _plan_gap(gap: RecipeGap, find_offers: Callable[[Need], list[Offer]], now: datetime) -> EventPlanLine:
+def _plan_gap(gap: RecipeGap, find_offers: Callable[[Need], list[Offer]], now: datetime,
+              substitutes_allowed: bool) -> EventPlanLine:
     base = dict(product_intent=gap.product_intent, quantity=gap.quantity_to_order, unit=gap.unit,
                 required_by=gap.required_by, recipe_names=gap.recipe_names)
     need = Need(text=f"{gap.quantity_to_order:g} {gap.unit} of {gap.product_intent}", product_intent=gap.product_intent,
                 quantity=gap.quantity_to_order, unit=gap.unit, deliver_by=gap.required_by,
                 extra_constraints=gap.required_claims)
-    offers = find_offers(need)
-    if (offer := _in_time(offers, need, now)) is not None:
-        return EventPlanLine(**base, status="in_time", reason=f"{offer.name} arrives {offer.available_date.isoformat()}.",
-                             order_intent=gap.product_intent, order_quantity=gap.quantity_to_order,
-                             order_unit=gap.unit, offer=offer)
-    why = _late_reason(offers, need, now)
-    for swap in swaps_for(gap.product_intent):
+    offer, why = _source(find_offers(need), need, now)
+    if offer is not None:
+        return EventPlanLine(**base, status="in_time", reason=why, order_intent=gap.product_intent,
+                             order_quantity=gap.quantity_to_order, order_unit=gap.unit, offer=offer)
+    swaps = swaps_for(gap.product_intent)
+    if not substitutes_allowed:
+        return EventPlanLine(**base, status="unsourceable", reason=f"{why} Your policy does not allow substitutes.")
+    for swap in swaps:
         qty = round(gap.quantity_to_order * swap.ratio, 3)
         sub = need.model_copy(update={"text": f"{qty:g} {swap.unit or gap.unit} of {swap.intent}",
                                       "product_intent": swap.intent, "quantity": qty, "unit": swap.unit or gap.unit})
-        if (offer := _in_time(find_offers(sub), sub, now)) is not None:
+        offer, _ = _source(find_offers(sub), sub, now)
+        if offer is not None:
             return EventPlanLine(**base, status="substitute", reason=f"{why} Recipe substitute instead.",
                                  order_intent=swap.intent, order_quantity=qty, order_unit=sub.unit,
                                  offer=offer, substitution_note=swap.note)
-    tail = " No recipe substitute arrives in time either; change the dish or buy locally." if swaps_for(gap.product_intent) \
-        else " No recipe substitute is known; change the dish or buy locally."
+    tail = (" No recipe substitute arrives in time either; change the dish or buy locally." if swaps
+            else " No recipe substitute is known; change the dish or buy locally.")
     return EventPlanLine(**base, status="unsourceable", reason=why + tail)
 
 
-def plan_event(request: EventPlanRequest, find_offers: Callable[[Need], list[Offer]],
-               now: datetime) -> EventPlanResponse:
+def plan_event(request: EventPlanRequest, find_offers: Callable[[Need], list[Offer]], now: datetime,
+               substitutes_allowed: bool = True) -> EventPlanResponse:
     """For a last-minute event: what the recipes need, what arrives in time, and recipe-level
     substitutes for what does not. Nothing is ordered here; ordering re-runs the full jury."""
     gaps = recipe_gaps(RecipeGapRequest(recipes=request.recipes, inventory=request.inventory,
                                         today=now.astimezone(HELSINKI).date())).gaps
+    if len(gaps) > MAX_EVENT_INGREDIENTS:
+        raise TooManyIngredients(f"{len(gaps)} distinct ingredients; plan at most {MAX_EVENT_INGREDIENTS} at a time.")
     with ThreadPoolExecutor(max_workers=5) as pool:
-        lines = list(pool.map(lambda g: _plan_gap(g, find_offers, now), gaps))
+        lines = list(pool.map(lambda g: _plan_gap(g, find_offers, now, substitutes_allowed), gaps))
     counts = {s: sum(line.status == s for line in lines) for s in ("in_time", "substitute", "unsourceable")}
     summary = (f"{len(lines)} ingredients · {counts['in_time']} in time · {counts['substitute']} via recipe "
                f"substitute · {counts['unsourceable']} cannot be sourced in time.")
@@ -157,7 +170,7 @@ def _live_offers(mandate: Mandate) -> Callable[[Need], list[Offer]]:
         m = mandate.model_copy(update={"required_claims": sorted({*mandate.required_claims, *need.extra_constraints})})
         conn = store.connect()  # per call: sqlite connections are not shared across threads
         try:
-            ids = _candidate_ids(conn, m, need, None, 5)
+            ids = candidate_ids(conn, m, need, None, 5)
             return get_offers(conn, get_client(), OffersRequest(need=need, product_ids=ids,
                                                                 delivery_date=need.deliver_by)) if ids else []
         finally:
@@ -173,6 +186,8 @@ def event_plan(request: EventPlanRequest) -> EventPlanResponse:
     if mandate is None:
         raise HTTPException(status_code=404, detail=f"Unknown policy {request.policy_id!r}.")
     try:
-        return plan_event(request, _live_offers(mandate), datetime.now(HELSINKI))
+        return plan_event(request, _live_offers(mandate), datetime.now(HELSINKI), mandate.substitutes_allowed)
+    except TooManyIngredients as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except AimoError as exc:
         raise HTTPException(status_code=502, detail="Valio Aimo API unavailable") from exc

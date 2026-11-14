@@ -764,6 +764,7 @@ async function connectElevenLive() {
       },
       plan_event: async ({recipes} = {}) => {
         if (!Array.isArray(recipes) || !recipes.length) return {planned: false, message: "At least one recipe with ingredients is required."};
+        if (eventOrdering) return {planned: false, message: "The current event is still being ordered; wait for its summary."};
         setWorking(`Checking ${recipes.length} recipe${recipes.length === 1 ? "" : "s"} against live availability…`);
         try {
           const plan = await fetchEventPlan(recipes);

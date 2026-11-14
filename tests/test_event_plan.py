@@ -70,3 +70,24 @@ def test_swaps_match_specific_phrases_first_and_never_return_the_same_ingredient
     assert swaps_for("whipping cream 35%")[0].intent == "cooking cream"
     assert all(s.intent != "turkish yoghurt" for s in swaps_for("turkish yoghurt"))
     assert swaps_for("saffron") == []
+
+
+def test_policy_without_substitutes_flags_instead_of_swapping():
+    plan = plan_event(request(("salmon", 0.1, "kg")), catalog({
+        "salmon": [offer("Salmon", available=date(2026, 11, 18))], "rainbow trout": [offer("Trout")],
+    }), NOW, substitutes_allowed=False)
+    assert plan.lines[0].status == "unsourceable" and "does not allow substitutes" in plan.lines[0].reason
+
+
+def test_too_many_ingredients_is_refused_before_any_lookup():
+    import pytest
+    from app.planning.router import TooManyIngredients
+    seen: list[Need] = []
+    with pytest.raises(TooManyIngredients):
+        plan_event(request(*[(f"item {i}", 0.1, "kg") for i in range(26)]), catalog({}, seen), NOW)
+    assert seen == []
+
+
+def test_lookalike_ingredients_are_not_swapped_as_dairy():
+    assert swaps_for("cream cheese")[0].intent == "mascarpone"
+    assert swaps_for("peanut butter") == swaps_for("coconut milk") == swaps_for("ice cream") == []

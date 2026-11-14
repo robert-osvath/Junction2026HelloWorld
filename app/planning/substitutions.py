@@ -16,8 +16,10 @@ class Swap:
 
 
 # Ordered: first matching keyword wins, so specific phrases sit above general ones
-# ("sour cream" before "cream", "buttermilk" before "butter").
+# ("sour cream" and "cream cheese" before "cream", "buttermilk" before "butter").
 RULES: list[tuple[tuple[str, ...], list[Swap]]] = [
+    # look-alikes of dairy words that are different ingredients: no swap rather than a wrong one
+    (("peanut butter", "nut butter", "coconut milk", "coconut cream", "ice cream", "milk chocolate", "milk powder"), []),
     (("buttermilk", "piimä"), [
         Swap("turkish yoghurt", 0.75, "Use 3 parts Turkish yoghurt thinned with 1 part water or milk; same tang and acidity for batters and marinades.", "kg"),
     ]),
@@ -27,14 +29,6 @@ RULES: list[tuple[tuple[str, ...], list[Swap]]] = [
     ]),
     (("creme fraiche", "crème fraîche", "ranskankerma"), [
         Swap("sour cream", 1.0, "Sour cream 1:1; add at the end, it can split if boiled."),
-    ]),
-    (("cooking cream", "ruokakerma"), [
-        Swap("whipping cream", 1.0, "Whipping cream 1:1; richer, so reduce the sauce a little less."),
-        Swap("creme fraiche", 1.0, "Crème fraîche 1:1 in sauces and soups; slightly tangy."),
-    ]),
-    (("whipping cream", "double cream", "heavy cream", "kuohukerma", "cream"), [
-        Swap("cooking cream", 1.0, "Cooking cream 1:1 for sauces and soups; it will not whip, so set desserts with gelatine instead."),
-        Swap("creme fraiche", 1.0, "Crème fraîche 1:1 in sauces; for desserts it gives a softer, tangier set."),
     ]),
     (("mascarpone",), [
         Swap("cream cheese", 1.0, "Cream cheese 1:1 loosened with a splash of cream; slightly tangier, sets the same."),
@@ -47,6 +41,14 @@ RULES: list[tuple[tuple[str, ...], list[Swap]]] = [
     ]),
     (("greek yoghurt", "turkish yoghurt", "yoghurt", "jogurtti"), [
         Swap("creme fraiche", 1.0, "Crème fraîche 1:1; richer, keep it cold for dressings."),
+    ]),
+    (("cooking cream", "ruokakerma"), [
+        Swap("whipping cream", 1.0, "Whipping cream 1:1; richer, so reduce the sauce a little less."),
+        Swap("creme fraiche", 1.0, "Crème fraîche 1:1 in sauces and soups; slightly tangy."),
+    ]),
+    (("whipping cream", "double cream", "heavy cream", "kuohukerma", "cream"), [
+        Swap("cooking cream", 1.0, "Cooking cream 1:1 for sauces and soups; it will not whip, so set desserts with gelatine instead."),
+        Swap("creme fraiche", 1.0, "Crème fraîche 1:1 in sauces; for desserts it gives a softer, tangier set."),
     ]),
     (("butter",), [
         Swap("margarine", 1.0, "Baking margarine 1:1 by weight; fine for sauces and baking, less flavour in finishing."),
