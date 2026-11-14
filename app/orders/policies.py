@@ -1,4 +1,5 @@
-"""Buyer policy registry used before any Vimo order can be drafted.
+"""Buyer policy registry. Every buyer has a ready default policy (no setup needed); a saved policy
+overrides it and the buyer can edit it any time.
 
 Policies are separate from orders: an order keeps the mandate that applied at
 creation time, while the buyer can later save a revised policy for new work.
@@ -12,6 +13,7 @@ from contracts import Mandate
 from app.db import connect_args, pooled
 from app.orders.mandates import MANDATES
 
+DEFAULT_BUYER = "Hotel North"
 _lock = threading.RLock()
 POLICIES: dict[str, Mandate] = {}  # read-through cache; MariaDB remains the source when configured
 
@@ -25,12 +27,24 @@ CREATE TABLE IF NOT EXISTS buyer_policies (
 """
 
 
+def _same(a: str, b: str) -> bool:
+    return a.strip().casefold() == b.strip().casefold()
+
+
+def is_cockpit_id(mandate_id: str) -> bool:
+    """Mandate ids that belong to Vimo buyers (saved or default policies)."""
+    return mandate_id.startswith(("policy-", "default-")) or mandate_id == "mandate-vimo-live"
+
+
 class MemoryStore:
     def save(self, mandate: Mandate) -> None:
         POLICIES[mandate.id] = mandate
 
     def get(self, policy_id: str) -> Mandate | None:
         return POLICIES.get(policy_id)
+
+    def latest(self, buyer_name: str) -> Mandate | None:
+        return next((m for m in reversed(list(POLICIES.values())) if _same(m.buyer_name, buyer_name)), None)
 
 
 class MariaDBStore:
@@ -52,6 +66,13 @@ class MariaDBStore:
             cur.execute("SELECT body FROM buyer_policies WHERE id=%s", (policy_id,))
             row = cur.fetchone()
         return Mandate.model_validate_json(row[0]) if row else None
+
+    def latest(self, buyer_name: str) -> Mandate | None:
+        with self.conn() as conn, conn.cursor() as cur:
+            cur.execute("SELECT body FROM buyer_policies ORDER BY created_at DESC, id LIMIT 200")
+            rows = cur.fetchall()
+        return next((m for m in (Mandate.model_validate_json(r[0]) for r in rows)
+                     if _same(m.buyer_name, buyer_name)), None)
 
 
 _store = None
@@ -85,3 +106,28 @@ def get(policy_id: str) -> Mandate | None:
         POLICIES[policy_id] = saved
         MANDATES[policy_id] = saved
     return saved
+
+
+def default(buyer_name: str | None = None) -> Mandate:
+    """Simple ready-made policy: auto-approve up to EUR 500, budget EUR 2,000, no claim/allergen rules,
+    substitutes allowed. Registered so orders made under it stay actionable."""
+    name = (buyer_name or "").strip() or DEFAULT_BUYER
+    base = MANDATES["mandate-vimo-live"]
+    if _same(name, DEFAULT_BUYER):
+        return base
+    slug = "-".join("".join(c if c.isalnum() else " " for c in name.casefold()).split())[:48] or "buyer"
+    m = base.model_copy(update={"id": f"default-{slug}", "buyer_name": name})
+    MANDATES.setdefault(m.id, m)
+    return MANDATES[m.id]
+
+
+def current(buyer_name: str | None = None) -> Mandate:
+    """The buyer's current policy: latest saved one, else the default."""
+    name = (buyer_name or "").strip() or DEFAULT_BUYER
+    with _lock:
+        saved = _store_for_runtime().latest(name)
+    if saved is not None:
+        POLICIES[saved.id] = saved
+        MANDATES[saved.id] = saved
+        return saved
+    return default(name)
