@@ -25,14 +25,34 @@ let liveAnalyser = null;
 let microphoneMonitor = null;
 let elevenConversation = null;
 let elevenStarting = null;  // in-flight start: auto-start + button click must not open two sessions (two voices)
+let elevenIdleTimer = null;
+let parkingElevenSession = false;
 let captionTimer = null;
 let speakAudio = null;
 let speakId = 0;
 let backendPollTimer = null;
+let lastBackendOrderStatus = null;
 const TURN_SILENCE_MS = 1200;
 const TURN_MAX_MS = 5000;
 const VOICE_DIAGNOSTICS_ENABLED = false;
 const recentVoiceEvents = new Map();
+
+function clearElevenIdleTimer() {
+  clearTimeout(elevenIdleTimer);
+  elevenIdleTimer = null;
+}
+
+function armElevenIdleTimer() {
+  clearElevenIdleTimer();
+  elevenIdleTimer = setTimeout(async () => {
+    const conversation = elevenConversation;
+    if (!conversation || liveRequest) return;
+    // A parked session cannot generate an unsolicited "are you still there?"
+    // turn. The wake listener remains available for the buyer's next request.
+    parkingElevenSession = true;
+    try { await conversation.endSession(); } catch (_) { /* it may already be closed */ }
+  }, 5000);
+}
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -474,8 +494,17 @@ function agentOrderFacts(order) {
 function startBackendDecisionPolling() {
   // reflect decisions made elsewhere (e.g. the /approvals page) on the order this page shows
   clearInterval(backendPollTimer);
-  backendPollTimer = setInterval(() => {
-    if (state.approval?.status === "pending_approval") refreshOrder();
+  lastBackendOrderStatus = state.approval?.status || null;
+  backendPollTimer = setInterval(async () => {
+    if (!state.approval?.id) return;
+    await refreshOrder();
+    const status = state.approval?.status || null;
+    if (!status || status === lastBackendOrderStatus) return;
+    lastBackendOrderStatus = status;
+    const update = `Backend update: this order is now ${STATUS_LABEL[status] || status}.`;
+    addEvent("Backend update", update);
+    if (status === "pending_approval") openDecisionConfirmation();
+    speak(update);
   }, 5000);
 }
 
@@ -596,6 +625,7 @@ async function connectElevenLive() {
     onModeChange: (event) => {
       const mode = typeof event === "string" ? event : event?.mode;
       if (mode === "speaking") {
+        clearElevenIdleTimer();
         // Laptop speakers can feed the agent's own voice back into the open
         // microphone. ElevenLabs then sees a false barge-in and cuts the
         // response short. Pause input only for the spoken turn; listening is
@@ -608,9 +638,11 @@ async function connectElevenLive() {
         Promise.resolve(elevenConversation?.setMicMuted(false)).catch(() => {});
         hideCaption(2500);
         if ($("#vimo-title").textContent === "Vimo is speaking") setListening();
+        armElevenIdleTimer();
       }
     },
     onError: () => {
+      clearElevenIdleTimer();
       try { elevenConversation?.endSession(); } catch (_) { /* already closed */ }
       elevenConversation = null;
       hideCaption(0);
@@ -621,6 +653,13 @@ async function connectElevenLive() {
       elevenConversation = null;
       hideCaption(0);
       clearTimeout(thinkingTimer);
+      clearElevenIdleTimer();
+      if (parkingElevenSession) {
+        parkingElevenSession = false;
+        setVimoState("Vimo is on standby", "Say “Hey Vimo” when you need me. I’ll also surface a real backend decision.");
+        startWakeListener();
+        return;
+      }
       clearInterval(backendPollTimer);
       backendPollTimer = null;
       setVimoState("Vimo is offline", "Select Talk to Vimo to reconnect.");
