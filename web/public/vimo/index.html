@@ -49,22 +49,22 @@
         </section>
 
         <section class="metrics" aria-label="Today at a glance">
-          <article><p>Active decisions</p><strong id="active-count">03</strong><span>across 2 locations</span></article>
-          <article><p>Within autonomy</p><strong class="good">€1,248</strong><span>ready to place</span></article>
-          <article><p>Awaiting approval</p><strong class="warn">01</strong><span>policy exception</span></article>
-          <article><p>Decision confidence</p><strong>94%</strong><span>from verified evidence</span></article>
+          <article><p>Tracked orders</p><strong id="active-count">—</strong><span id="tracked-note">Loading backend records</span></article>
+          <article><p>Placed value</p><strong class="good" id="placed-value">—</strong><span>confirmed by the backend</span></article>
+          <article><p>Awaiting approval</p><strong class="warn" id="pending-count">—</strong><span>requires a buyer decision</span></article>
+          <article><p>Latest decision</p><strong id="decision-status">—</strong><span id="decision-note">Waiting for backend data</span></article>
         </section>
 
         <section class="grid">
           <article class="panel decision-panel">
             <div class="panel-heading">
-              <div><p class="eyebrow">CURRENT DECISION</p><h2>1,000 L lactose-free milk</h2></div>
-              <span class="status">Jury complete</span>
+              <div><p class="eyebrow">CURRENT DECISION</p><h2 id="decision-name">No active order</h2></div>
+              <span class="status" id="decision-badge">Waiting</span>
             </div>
-            <p class="request">“Find a compliant option for Monday delivery, within our approved supplier policy.”</p>
+            <p class="request" id="decision-request">Create an order draft to see a live catalog, price, delivery and jury decision here.</p>
             <div class="jury" id="jury-list"></div>
             <div class="recommendation">
-              <div><p class="eyebrow">RECOMMENDATION</p><h3>Valio Eila® 10 L Novobox</h3><p>50 cases · €1,565.50 · Delivery Monday</p></div>
+              <div><p class="eyebrow">RECOMMENDATION</p><h3 id="recommendation-name">No recommendation yet</h3><p id="recommendation-detail">Live order details appear after backend evaluation.</p></div>
               <button class="text-button" id="speak-update">Hear update ↗</button>
             </div>
           </article>
@@ -76,9 +76,8 @@
         </section>
 
         <section class="panel inventory-panel">
-          <div class="panel-heading"><div><p class="eyebrow">INVENTORY WATCH</p><h2>What needs attention next</h2></div><span class="muted">Updated 2 min ago</span></div>
-          <div class="inventory-row"><span class="dot urgent"></span><div><strong>Lactose-free milk</strong><p>Projected below par level at Hotel North</p></div><strong>2 days</strong><button class="secondary">Review</button></div>
-          <div class="inventory-row"><span class="dot"></span><div><strong>Oat drink barista</strong><p>Standing order is 12% above usual volume</p></div><strong>Review</strong><button class="secondary">Inspect</button></div>
+          <div class="panel-heading"><div><p class="eyebrow">ORDER WATCH</p><h2>What needs attention next</h2></div><span class="muted" id="orders-updated">Loading backend data</span></div>
+          <div id="order-watch"></div>
         </section>
       </main>
     </div>
@@ -88,12 +87,14 @@
         <div class="dialog-heading"><div><p class="eyebrow">FIRST-TIME SETUP</p><h2>Set your purchasing rules</h2></div><button class="close" value="cancel" aria-label="Close">×</button></div>
         <p class="dialog-copy">The agent will act only inside these limits. You can update them at any time.</p>
         <div class="form-grid">
-          <label>Buyer / location<input name="buyer" required value="Hotel North" /></label>
+          <label>Buyer / location<input name="buyer" required value="My kitchen" /></label>
           <label>Auto-approve limit (€)<input name="limit" type="number" min="0" value="500" required /></label>
           <label>Order budget (€)<input name="budget" type="number" min="0" value="2000" required /></label>
           <label>Required claim<input name="claim" value="Lactose-free" /></label>
+          <label>Blocked allergens (codes, comma-separated)<input name="allergens" placeholder="e.g. AM, AW" /></label>
         </div>
         <label class="check"><input name="substitutes" type="checkbox" checked /> Allow substitutions that preserve dietary and allergen rules</label>
+        <label class="check"><input name="strict_allergens" type="checkbox" /> Escalate when allergen evidence is incomplete</label>
         <div class="dialog-actions"><button class="secondary" value="cancel">Cancel</button><button class="primary" value="default">Save rules and continue</button></div>
       </form>
     </dialog>

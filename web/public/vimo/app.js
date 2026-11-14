@@ -3,18 +3,9 @@ const state = {
   approval: null,
   agentState: null,
   conversation: [],
-  jury: [
-    ["Product-fit jury", "Lactose-free requirement verified", "98% confidence"],
-    ["Availability jury", "Terminal supply is estimated for Monday", "Needs attention"],
-    ["Cost jury", "€1,565.50 is within order budget", "94% confidence"],
-    ["Policy jury", "Above €500 automatic approval limit", "Escalated"],
-  ],
-  events: [
-    ["09:42", "Inventory risk identified", "Projected milk shortfall at Hotel North in 2 days."],
-    ["09:43", "Specialist checks launched", "Product, delivery, cost and buyer-policy checks started."],
-    ["09:44", "Recommendation prepared", "Valio Eila® covers the need; terminal supply remains estimated."],
-    ["09:44", "Approval requested", "Total exceeds the buyer’s automatic approval limit."],
-  ],
+  jury: [],
+  events: [],
+  orders: [],
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -43,15 +34,35 @@ const VOICE_DIAGNOSTICS_ENABLED = false;
 const recentVoiceEvents = new Map();
 
 function renderJury() {
-  juryList.innerHTML = state.jury.map(([name, finding, confidence]) => `
-    <div class="jury-row"><span class="checkmark">✓</span><strong>${name}</strong><span>${finding}</span><span>${confidence}</span></div>
-  `).join("");
+  juryList.replaceChildren(...state.jury.map((verdict) => {
+    const row = document.createElement("div");
+    row.className = "jury-row";
+    const mark = document.createElement("span");
+    mark.className = "checkmark";
+    mark.textContent = verdict.decision === "reject" ? "!" : "✓";
+    const juror = document.createElement("strong");
+    juror.textContent = `${verdict.juror} jury`;
+    const reason = document.createElement("span");
+    reason.textContent = verdict.reasons?.join("; ") || "No explanation returned.";
+    const confidence = document.createElement("span");
+    confidence.textContent = verdict.confidence == null ? verdict.decision : `${Math.round(verdict.confidence * 100)}% confidence`;
+    row.append(mark, juror, reason, confidence);
+    return row;
+  }));
+  if (!state.jury.length) juryList.textContent = "No jury verdict is available yet.";
 }
 
 function renderTimeline() {
-  timeline.innerHTML = state.events.map(([time, title, detail]) => `
-    <li><time>${time}</time><strong>${title}</strong>${detail}</li>
-  `).join("");
+  timeline.replaceChildren(...state.events.map((event) => {
+    const item = document.createElement("li");
+    const time = document.createElement("time");
+    const title = document.createElement("strong");
+    time.textContent = event.time;
+    title.textContent = event.title;
+    item.append(time, title, document.createTextNode(event.detail));
+    return item;
+  }));
+  if (!state.events.length) timeline.textContent = "No backend activity has been recorded yet.";
 }
 
 function setVimoState(title, detail, listening = false) {
@@ -208,13 +219,20 @@ function handleLiveTurn(transcript) {
 }
 
 async function getBackendAgentState() {
-  const rules = JSON.parse(localStorage.getItem("aimo-rules") || "{}");
-  const limit = Number(rules.limit || 500);
-  const response = await fetch(`/experience/agent-state?auto_approve_limit=${encodeURIComponent(limit)}`);
-  if (!response.ok) throw new Error("Vimo backend evidence is unavailable");
-  const agentState = await response.json();
-  state.agentState = agentState;
-  return agentState;
+  const ordersResponse = await fetch("/orders");
+  if (!ordersResponse.ok) throw new Error("Vimo backend orders are unavailable");
+  const orders = await ordersResponse.json();
+  const active = orders.find((order) => order.status === "pending_approval") || orders[0] || null;
+  state.orders = orders;
+  state.approval = orders.find((order) => order.status === "pending_approval") || null;
+  state.agentState = active ? {
+    order_id: active.id,
+    order_status: active.status,
+    jury_decision: active.status === "pending_approval" ? "human_approval" : active.status,
+    verdicts: active.verdicts || [],
+    summary: orderSummary(active),
+  } : null;
+  return state.agentState;
 }
 
 async function searchBackendCatalog(query, requiredClaims = []) {
@@ -234,29 +252,17 @@ async function searchBackendCatalog(query, requiredClaims = []) {
   }));
 }
 
-async function prepareBackendDecision() {
+async function createCatalogDraft({product_id, product_intent, quantity, unit, deliver_by, required_claims = [], exception_reason = ""}) {
   const rules = JSON.parse(localStorage.getItem("aimo-rules") || "{}");
-  const response = await fetch("/experience/prepare-decision", {
-    method: "POST",
-    headers: {"content-type": "application/json"},
-    body: JSON.stringify({
-      buyer_name: rules.buyer || "Hotel North",
-      auto_approve_limit: Number(rules.limit || 500),
-      budget: Number(rules.budget || 2000),
-    }),
+  const policyClaims = String(rules.claim || "").split(",").map((claim) => claim.trim()).filter(Boolean).map((claim) => {
+    const normalized = claim.toUpperCase().replace(/[ -]+/g, "_");
+    return normalized === "LACTOSE_FREE" ? "FREE_FROM_LACTOSE" : normalized;
   });
-  if (!response.ok) throw new Error("Could not prepare the approval decision");
-  state.approval = await response.json();
-  return state.approval;
-}
-
-async function createCatalogDraft({product_id, product_intent, quantity, unit, deliver_by, required_claims = []}) {
-  const rules = JSON.parse(localStorage.getItem("aimo-rules") || "{}");
   const response = await fetch("/experience/create-draft", {
     method: "POST",
     headers: {"content-type": "application/json"},
     body: JSON.stringify({
-      buyer_name: rules.buyer || "Hotel North",
+      buyer_name: rules.buyer || "My kitchen",
       auto_approve_limit: Number(rules.limit || 500),
       budget: Number(rules.budget || 2000),
       product_id,
@@ -264,11 +270,104 @@ async function createCatalogDraft({product_id, product_intent, quantity, unit, d
       quantity: Number(quantity),
       unit,
       deliver_by,
-      required_claims,
+      required_claims: required_claims.length ? required_claims : policyClaims,
+      banned_allergens: String(rules.allergens || "").split(",").map((value) => value.trim()).filter(Boolean),
+      strict_allergens: Boolean(rules.strict_allergens),
+      substitutes_allowed: Boolean(rules.substitutes),
+      exception_reason,
     }),
   });
   if (!response.ok) throw new Error("The live backend could not create this order draft");
   return response.json();
+}
+
+function euro(value) {
+  return new Intl.NumberFormat("en-FI", {style: "currency", currency: "EUR"}).format(Number(value || 0));
+}
+
+function orderTotal(order) {
+  return (order?.lines || []).reduce((total, line) => total + Number(line.total_eur || 0), 0);
+}
+
+function orderLabel(order) {
+  const line = order?.lines?.[0];
+  return line ? `${line.units_needed} ${line.sales_unit} ${line.name}` : order?.need?.text || "Order";
+}
+
+function orderSummary(order) {
+  if (!order) return "No backend order is active.";
+  const line = order.lines?.[0];
+  const delivery = line?.available_date || order.need?.deliver_by || "delivery date unavailable";
+  return `${orderLabel(order)} for ${euro(orderTotal(order))}, delivery ${delivery}. Status: ${order.status.replaceAll("_", " ")}.`;
+}
+
+function statusLabel(status) {
+  return String(status || "waiting").replaceAll("_", " ");
+}
+
+function renderOrderWatch(orders) {
+  const watch = $("#order-watch");
+  watch.replaceChildren(...orders.slice(0, 6).map((order) => {
+    const row = document.createElement("div");
+    row.className = "watch-row";
+    const details = document.createElement("div");
+    const title = document.createElement("strong");
+    const summary = document.createElement("span");
+    title.textContent = orderLabel(order);
+    summary.textContent = `${statusLabel(order.status)} · ${euro(orderTotal(order))} · ${order.id}`;
+    details.append(title, summary);
+    const badge = document.createElement("span");
+    badge.className = "status";
+    badge.textContent = statusLabel(order.status);
+    row.append(details, badge);
+    return row;
+  }));
+  if (!orders.length) watch.textContent = "No orders have been created by the backend yet.";
+}
+
+async function refreshCockpit() {
+  const [ordersResponse, auditResponse] = await Promise.all([fetch("/orders"), fetch("/audit")]);
+  if (!ordersResponse.ok || !auditResponse.ok) throw new Error("Backend records are unavailable");
+  const orders = await ordersResponse.json();
+  const audit = await auditResponse.json();
+  state.orders = orders;
+  state.approval = orders.find((order) => order.status === "pending_approval") || null;
+  const active = state.approval || orders[0] || null;
+  state.agentState = active ? {
+    order_id: active.id, order_status: active.status,
+    jury_decision: active.status === "pending_approval" ? "human_approval" : active.status,
+    verdicts: active.verdicts || [], summary: orderSummary(active),
+  } : null;
+  state.jury = active?.verdicts || [];
+  state.events = audit.slice(0, 8).map((event) => ({
+    time: new Date(event.ts).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"}),
+    title: event.action.replaceAll(".", " "), detail: event.human_summary,
+  }));
+  renderJury();
+  renderTimeline();
+  renderOrderWatch(orders);
+  $("#active-count").textContent = String(orders.length);
+  $("#tracked-note").textContent = orders.length === 1 ? "1 backend order" : `${orders.length} backend orders`;
+  $("#placed-value").textContent = euro(orders.filter((order) => order.status === "placed").reduce((total, order) => total + orderTotal(order), 0));
+  $("#pending-count").textContent = String(orders.filter((order) => order.status === "pending_approval").length);
+  $("#decision-status").textContent = statusLabel(active?.status);
+  $("#decision-note").textContent = active ? active.id : "No order evaluated";
+  $("#orders-updated").textContent = audit[0] ? `Updated ${new Date(audit[0].ts).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})}` : "No backend events yet";
+  $("#decision-name").textContent = active ? orderLabel(active) : "No active order";
+  $("#decision-badge").textContent = statusLabel(active?.status);
+  $("#decision-request").textContent = active?.need?.text || "Create an order draft to see the live recommendation and jury evaluation.";
+  $("#recommendation-name").textContent = active?.lines?.[0]?.name || "No recommendation yet";
+  $("#recommendation-detail").textContent = active ? `${euro(orderTotal(active))} · delivery ${active.lines?.[0]?.available_date || active.need.deliver_by} · ${statusLabel(active.status)}` : "Live order details appear after backend evaluation.";
+  const pending = state.approval;
+  $("#approval-banner").hidden = !pending;
+  if (pending) {
+    $("#approval-title").textContent = "Approval needed before this order can proceed";
+    $("#approval-detail").textContent = orderSummary(pending);
+    $("#approve-order").disabled = false;
+    $("#reject-order").disabled = false;
+    $("#voice-decision").disabled = false;
+  }
+  return active;
 }
 
 function clearElevenSleepTimer() {
@@ -293,15 +392,13 @@ function armElevenSleepTimer() {
 
 function startBackendDecisionPolling() {
   clearInterval(backendPollTimer);
-  let lastOrderStatus = state.agentState?.order_status || "not-created";
+  let lastPendingId = state.approval?.id || null;
   backendPollTimer = setInterval(async () => {
     try {
-      const latest = await getBackendAgentState();
-      const changedToPending = latest.order_status === "pending_approval" && lastOrderStatus !== "pending_approval";
-      lastOrderStatus = latest.order_status;
-      if (!changedToPending) return;
-      await loadDecision();
-      if (state.approval) {
+      await refreshCockpit();
+      const changedToPending = state.approval && state.approval.id !== lastPendingId;
+      lastPendingId = state.approval?.id || null;
+      if (changedToPending) {
         showBackendApprovalPopup();
         setVimoState("Vimo needs your decision", "A verified backend decision is ready for review.");
       }
@@ -331,7 +428,7 @@ function openDecisionConfirmation(decision = null, transcript = "") {
     row.append(term, description);
     return row;
   }));
-  $("#voice-transcript").textContent = transcript || state.agentState?.summary || "Vimo prepared a live order draft for your review.";
+  $("#voice-transcript").textContent = transcript || orderSummary(state.approval);
   if (decision) {
     const label = decision === "approve" ? "Approve this order" : "Reject this order";
     $("#voice-status").textContent = `Vimo heard “${decision}”. Confirm to record this decision in the buyer workflow.`;
@@ -345,9 +442,9 @@ function openDecisionConfirmation(decision = null, transcript = "") {
 }
 
 function showBackendApprovalPopup() {
-  if (state.agentState?.jury_decision !== "human_approval" || state.approval?.status !== "pending_approval") return false;
+  if (state.approval?.status !== "pending_approval") return false;
   $("#approval-title").textContent = "Vimo needs your decision";
-  $("#approval-detail").textContent = state.agentState.summary;
+  $("#approval-detail").textContent = orderSummary(state.approval);
   $("#approval-banner").hidden = false;
   return openDecisionConfirmation();
 }
@@ -362,30 +459,31 @@ async function startElevenLive() {
   elevenConversation = await Conversation.startSession({
     signedUrl,
     clientTools: {
-      get_backend_state: async () => getBackendAgentState(),
+      get_backend_state: async () => {
+        await refreshCockpit();
+        return state.agentState || {message: "No backend orders exist yet."};
+      },
       search_catalog: async ({query, required_claims = []} = {}) => {
         if (!query?.trim()) return {products: [], message: "A product or category is required."};
         const products = await searchBackendCatalog(query, required_claims);
         return {products, source: "Valio Aimo catalog"};
       },
       show_approval_popup: async () => {
-        await prepareBackendDecision();
-        await loadDecision();
+        await refreshCockpit();
         const shown = showBackendApprovalPopup();
         return {shown, message: shown ? "The buyer approval dialog is open." : "No approval is currently required."};
       },
       create_order_draft: async (request = {}) => {
         const draft = await createCatalogDraft(request);
-        state.approval = draft;
-        const shown = openDecisionConfirmation(null, "Vimo created this live backend order draft.");
+        await refreshCockpit();
+        const shown = draft.status === "pending_approval" && openDecisionConfirmation(null, "Vimo created this live backend order draft.");
         return {created: draft.status === "pending_approval", order_id: draft.id, order_status: draft.status, shown};
       },
       propose_order_decision: async ({decision} = {}) => {
         if (decision !== "approve" && decision !== "reject") {
           return {shown: false, message: "A decision must be approve or reject."};
         }
-        await prepareBackendDecision();
-        await loadDecision();
+        await refreshCockpit();
         const shown = openDecisionConfirmation(decision, `Vimo heard: “${decision} this offer.”`);
         return {shown, message: shown ? `The ${decision} confirmation is ready for the buyer.` : "There is no pending order to decide."};
       },
@@ -393,9 +491,7 @@ async function startElevenLive() {
         if (decision !== "approve" && decision !== "reject") {
           return {executed: false, message: "A decision must be approve or reject."};
         }
-        const prepared = await prepareBackendDecision();
-        state.approval = prepared;
-        if (state.agentState) state.agentState.order_status = prepared.status;
+        await refreshCockpit();
         const updated = await recordBuyerDecision(decision);
         return updated
           ? {executed: true, order_id: updated.id, order_status: updated.status}
@@ -700,8 +796,6 @@ function handleOnboardingAnswer(transcript) {
   };
   localStorage.setItem("aimo-rules", JSON.stringify(rules));
   $("#policy-copy").textContent = `${rules.buyer}: Vimo can act up to €${rules.limit} when every policy check passes.`;
-  state.events.unshift([new Date().toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"}), "Voice rules saved", `Vimo may auto-approve up to €${rules.limit}.`]);
-  renderTimeline();
   setVimoState("Vimo is monitoring", `Rules for ${rules.buyer} are active. I will call out only when something needs your attention.`);
   vimoEnabled = true;
   speak(`Your rules are active. I will call out only when something needs your attention.`).then(startWakeListener);
@@ -709,17 +803,9 @@ function handleOnboardingAnswer(transcript) {
 
 function startVimo({announce = true} = {}) {
   if (!localStorage.getItem("aimo-rules")) {
-    const defaultRules = {
-      buyer: "Hotel North", limit: "500", budget: "2000", claim: "Lactose-free", substitutes: "on",
-    };
-    localStorage.setItem("aimo-rules", JSON.stringify(defaultRules));
-    $("#policy-copy").textContent = "Hotel North: Vimo can act up to €500 when every dietary and delivery check passes.";
-    state.events.unshift([
-      new Date().toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"}),
-      "Starter policy enabled",
-      "Vimo is ready with a €500 automatic approval limit. Change it any time in purchasing rules.",
-    ]);
-    renderTimeline();
+    $("#rules-dialog").showModal();
+    setVimoState("Set your purchasing rules", "Vimo needs your buyer limits before it can create or approve any order.");
+    return;
   }
   vimoEnabled = true;
   const alert = "Vimo is active. Tell me what your kitchen needs, or ask what needs attention.";
@@ -750,21 +836,7 @@ function startLegacyVimo(announce, alert) {
 
 async function loadDecision() {
   try {
-    state.agentState = await getBackendAgentState();
-    const ordersResponse = await fetch("/orders");
-    const orders = ordersResponse.ok ? await ordersResponse.json() : [];
-    state.approval = orders.find((order) => order.status === "pending_approval") || null;
-    const needsApproval = state.agentState.jury_decision === "human_approval" && state.approval;
-    if (needsApproval) {
-      $("#approval-title").textContent = "Approval needed before this order can proceed";
-      $("#approval-detail").textContent = state.agentState.summary;
-      $("#approval-banner").hidden = false;
-      $("#approve-order").disabled = false;
-      $("#reject-order").disabled = false;
-      $("#voice-decision").disabled = false;
-    } else {
-      $("#approval-banner").hidden = true;
-    }
+    await refreshCockpit();
   } catch (_) {
     $("#approval-banner").hidden = true;
   }
@@ -776,8 +848,6 @@ async function recordBuyerDecision(decision) {
   const response = await fetch(`/orders/${state.approval.id}/${endpoint}`, {method: "POST"});
   if (!response.ok) throw new Error("The decision could not be recorded");
   const updated = await response.json();
-  state.approval = updated;
-  if (state.agentState) state.agentState.order_status = updated.status;
   selectedVoiceDecision = null;
   $("#approval-banner").hidden = true;
   if ($("#voice-dialog").open) $("#voice-dialog").close();
@@ -785,12 +855,7 @@ async function recordBuyerDecision(decision) {
   $("#approve-order").disabled = true;
   $("#reject-order").disabled = true;
   $("#voice-decision").disabled = true;
-  const title = decision === "approve" ? "Order approved" : "Order rejected";
-  const detail = decision === "approve"
-    ? "Decision recorded."
-    : "Decision recorded. No order will be placed.";
-  state.events.unshift([new Date().toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"}), title, detail]);
-  renderTimeline();
+  await refreshCockpit();
   setVimoState("Vimo is sleeping", "Decision completed. Say “Hey Vimo” when you need me.");
   return updated;
 }
@@ -803,9 +868,8 @@ $("#rules-form").addEventListener("submit", (event) => {
   localStorage.setItem("aimo-rules", JSON.stringify(rules));
   $("#policy-copy").textContent = `${rules.buyer}: orders up to €${rules.limit} can proceed automatically when all dietary and delivery rules are met.`;
   $("#rules-dialog").close();
-  state.events.unshift([new Date().toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"}), "Buyer policy updated", `Automatic approval limit set to €${rules.limit}.`]);
-  renderTimeline();
   speak("Your purchasing rules have been saved.");
+  if (!vimoEnabled) startVimo();
 });
 
 $("#voice-toggle").addEventListener("click", (event) => {
@@ -873,20 +937,20 @@ $("#confirm-voice").addEventListener("click", async () => {
 });
 
 $("#speak-update").addEventListener("click", () => {
-  const update = state.agentState?.summary || "The backend jury decision is still loading.";
+  const update = state.agentState?.summary || "There is no backend order to report yet.";
   speak(update);
 });
 $("#end-day").addEventListener("click", async () => {
-  const verifiedEvents = [
-    "One inventory risk was identified at Hotel North.",
-    "A lactose-free milk order was checked by product, availability, cost and policy juries.",
-    "One order is waiting for human approval because it exceeds the automatic approval limit.",
-  ];
-  let summary = "Today the purchasing agent identified one inventory risk, evaluated a lactose-free milk order through four specialist checks, and requested one human approval.";
+  await refreshCockpit();
+  const rules = JSON.parse(localStorage.getItem("aimo-rules") || "{}");
+  const verifiedEvents = state.events.map((event) => event.detail).filter(Boolean).slice(0, 12);
+  let summary = verifiedEvents.length
+    ? verifiedEvents.join(" ")
+    : "No backend purchasing activity has been recorded today.";
   try {
     const response = await fetch("/experience/brief", {
       method: "POST", headers: {"content-type": "application/json"},
-      body: JSON.stringify({buyer_name: "Hotel North", kind: "end_of_day", verified_events: verifiedEvents}),
+      body: JSON.stringify({buyer_name: rules.buyer || "Buyer", kind: "end_of_day", verified_events: verifiedEvents.length ? verifiedEvents : [summary]}),
     });
     if (response.ok) summary = (await response.json()).text;
   } catch (_) { /* The UI still works while API credentials are being added. */ }
