@@ -1,0 +1,5 @@
+[
+  {"product": "463038", "catalogPrice": {"value": 31.31, "currency": "EUR"}, "listPrice": {"value": 36.83, "currency": "EUR"}, "comparisonPrice": {"value": 1.57, "currency": "EUR"}, "comparisonUnit": "L", "tax": {"rate": 13.5}, "netPriceFound": true},
+  {"product": "460001", "catalogPrice": {"value": 12.4, "currency": "EUR"}, "listPrice": {"value": 14.1, "currency": "EUR"}, "comparisonPrice": {"value": 6.2, "currency": "EUR"}, "comparisonUnit": "KG", "tax": {"rate": 13.5}, "netPriceFound": true},
+  {"product": "460002", "catalogPrice": null, "listPrice": {"value": 5.0, "currency": "EUR"}, "comparisonPrice": null, "comparisonUnit": null, "netPriceFound": false}
+]

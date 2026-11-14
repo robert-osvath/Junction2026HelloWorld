@@ -1,0 +1,5 @@
+[
+  {"product": "463038", "closingTime": "2026-11-12T15:00:00+02:00", "salesBlock": false, "logisticModel": "Terminal", "quantity": 999999, "scheduleLines": [{"availableDate": "2026-11-16", "quantity": 999999}]},
+  {"product": "460001", "closingTime": "2026-11-14T12:00:00+02:00", "salesBlock": false, "logisticModel": "Stock", "quantity": 240, "scheduleLines": [{"availableDate": "2026-11-17", "quantity": 240}]},
+  {"product": "460002", "closingTime": "2026-11-13T09:30:00+02:00", "salesBlock": true, "logisticModel": "Stock", "quantity": 0, "scheduleLines": []}
+]
