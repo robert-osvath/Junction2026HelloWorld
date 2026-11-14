@@ -44,6 +44,10 @@ function clearElevenIdleTimer() {
 
 function armElevenIdleTimer() {
   clearElevenIdleTimer();
+  // Electron does not reliably expose the Web Speech wake listener. Parking
+  // there would disconnect the only working microphone path, so keep the
+  // ElevenLabs session live on those clients.
+  if (!hasBrowserSpeechRecognition()) return;
   elevenIdleTimer = setTimeout(async () => {
     const conversation = elevenConversation;
     if (!conversation || liveRequest) return;
@@ -796,7 +800,18 @@ function stopWakeListener() {
 
 function startWakeListener() {
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!vimoEnabled || !Recognition || wakeRecognition) return;
+  if (!vimoEnabled || wakeRecognition) return;
+  if (!Recognition) {
+    // Browser wake recognition is optional. Electron can still have a smooth
+    // always-listening conversation through ElevenLabs instead of appearing
+    // asleep after the idle timeout.
+    if (!elevenConversation && !elevenStarting) {
+      startElevenLive().catch(() => {
+        setVimoState("Vimo needs voice access", "Live voice could not reconnect. Check microphone permission, then select Talk to Vimo.");
+      });
+    }
+    return;
+  }
   const recognition = new Recognition();
   wakeRecognition = recognition;
   recognition.lang = "en-US";
