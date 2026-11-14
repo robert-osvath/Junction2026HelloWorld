@@ -1,7 +1,8 @@
 # Team Hello World – Junction 2026 – Valio Aimo "Trusted Trade Agents"
 
 Deadline: **Sunday 2026-11-15 10:00 (Helsinki)**. Team: Hardik (P1), Robert (P2), Yash (P3), Aviral (P4).
-Tracker (source of truth for tickets): Notion → Hack Junction → Product Roadmap Timeline (T0–T15).
+Tickets T0–T15 (source of truth, read the ticket page before starting one): https://app.notion.com/p/a796750c710382499e8401926d342384
+(Notion MCP data source `collection://9f26750c-7103-83d1-8639-07e5ddf48258`; filter by Lane = P1–P4).
 Plan + contracts page: https://app.notion.com/p/4176750c710381a390cbe658e59dd918
 Solution page: https://app.notion.com/p/4176750c710381dd8f76d6f5751a2692
 
@@ -9,6 +10,14 @@ Solution page: https://app.notion.com/p/4176750c710381dd8f76d6f5751a2692
 - Show proposed file/structure changes before making large ones; keep answers short.
 - Never commit secrets. API key lives in `.env` (`VALIO_API_KEY=...`), `.env` is gitignored.
 - Build against mocks first; replace mocks when the owning lane lands the real thing.
+
+## Token efficiency (mandatory)
+- The main session's model (the big one, e.g. Opus) decides and orchestrates: reads the ticket, plans, reviews, makes judgment calls.
+- Smaller models do the volume work: spawn subagents with `model: "sonnet"` to write code/tests and
+  `model: "haiku"` to run commands, search, read logs or the 87 MB data files. Give them pointers
+  (ticket link, file paths, commit), not pasted context; ask for short reports.
+- For a long multi-step goal use the `chief-of-staff` skill (user-invoked: `/chief-of-staff`), which runs all
+  work through subagents; skip its to-spec/to-tickets step, tickets live in Notion.
 
 ## Git workflow (mandatory, no exceptions)
 - **Never commit or push to `main` directly.** Every change goes on a feature branch named
@@ -125,14 +134,8 @@ Run commands: see README.md.
 Each lane replaces its mock in its own router: `app/catalog/router.py`, `app/jury/router.py`, `app/orders/router.py`;
 fixtures served via `app.mocks.load(name)`.
 
-## T0 – Contracts + repo skeleton (DONE, on main)
-1. Create the layout above, `pyproject.toml`, `.env.example`, `.gitignore` (`.env`, `data/`).
-2. `contracts/` pydantic models exactly as above (+ example JSON fixtures for each).
-3. FastAPI app with all endpoints above returning fixtures from `app/mocks/` (milk scenario).
-4. `db/docker-compose.yml` for MariaDB 11.x.
-5. Script to download the 4 data files into `data/`.
-6. Smoke test hitting every mock endpoint; README with run commands.
-Done when every lane can call every other lane's mocks.
+## Progress (update when a ticket merges)
+T0 contracts + skeleton: on main. T13 audit log: merged (PR #2) — use `app.orders.audit.get_store().append(...)`.
 
 ## Milestones
 Sat 10:00 High tickets work in isolation · Sat 14:00 happy path end to end ·
