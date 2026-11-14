@@ -136,6 +136,8 @@ fixtures served via `app.mocks.load(name)`.
 
 ## Progress (update when a ticket merges)
 T0 contracts + skeleton: on main. T13 audit log: merged (PR #2) — use `app.orders.audit.get_store().append(...)`.
+T12 order service: merged (PR #4) — real `/orders*`; mandates from fixtures (`app/orders/mandates.py`); jury is still the mock with a total-vs-limits rule until T6.
+T15 CI: `.github/workflows/ci.yml` (pytest + CycloneDX SBOM artifact on `craci`; repo var `CI_RUNNER` overrides).
 
 ## Milestones
 Sat 10:00 High tickets work in isolation · Sat 14:00 happy path end to end ·

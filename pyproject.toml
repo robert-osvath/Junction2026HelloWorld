@@ -12,7 +12,10 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest"]
+dev = [
+    "cyclonedx-bom>=8.0.1",
+    "pytest",
+]
 
 [tool.uv]
 package = false
