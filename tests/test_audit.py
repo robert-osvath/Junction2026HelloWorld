@@ -207,3 +207,41 @@ def test_concurrent_identical_drafts_create_only_one_order(monkeypatch):
     for t in threads:
         t.join()
     assert len(created) == 1 and sorted(map(str, outcomes))[0] == "409"
+
+
+def test_different_drafts_run_in_parallel(monkeypatch):
+    """Only the duplicate check is serialised: an event's 'Order all' must not queue the jury work."""
+    import threading
+    import time
+    from datetime import date, timedelta
+    from app.experience import router as experience
+    from app.orders import flow
+    from app.orders.store import get_order_store
+    from contracts import Order
+
+    def slow_order(mandate, need, **_):
+        time.sleep(0.5)
+        order = Order(id=f"order-par-{need.product_intent}", mandate_id=mandate.id, need=need, lines=[], verdicts=[],
+                      status="placed", confirmation_no=None, substitutes=[])
+        get_order_store().save(order)
+        return order
+
+    monkeypatch.setattr(flow, "order_from_need", slow_order)
+    reqs = [experience.CreateDraftRequest(buyer_name="Parallel buyer", product_intent=f"item {i}", quantity=1, unit="kg",
+                                          deliver_by=date.today() + timedelta(days=3)) for i in range(3)]
+    t0 = time.monotonic()
+    threads = [threading.Thread(target=experience.create_draft, args=(r,)) for r in reqs]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert time.monotonic() - t0 < 1.2  # serialised would take >= 1.5 s
+
+
+def test_append_many_chains_like_single_appends():
+    s = MemoryStore()
+    s.append(order_id="o1", actor="buyer-agent", action="order.requested", payload={"n": 0}, human_summary="first")
+    events = s.append_many([dict(order_id="o1", actor="juror:spec", action="verdict.approve", payload={"n": i},
+                                 human_summary=f"v{i}") for i in range(3)])
+    assert [e.prev_hash for e in events[1:]] == [e.hash for e in events[:-1]]
+    assert s.verify().ok and s.verify().checked == 4

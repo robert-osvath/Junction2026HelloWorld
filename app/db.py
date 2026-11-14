@@ -1,5 +1,6 @@
 """Shared MariaDB connection args from a DB_URL like mysql://user:pass@host:3306/db?ssl=true"""
 import threading
+import time
 from contextlib import contextmanager
 from urllib.parse import parse_qs, unquote, urlparse
 
@@ -27,6 +28,7 @@ def connect_args(url: str) -> dict:
 
 
 _local = threading.local()
+PING_AFTER_IDLE_S = 5.0
 
 
 @contextmanager
@@ -35,13 +37,16 @@ def pooled(args: dict):
     key = (args["host"], args["port"], args["user"], args["database"])
     conns = _local.__dict__.setdefault("conns", {})
     c = conns.get(key)
-    if c is not None:
+    used = _local.__dict__.setdefault("used", {})
+    # ping only a connection idle for a while: each ping is a ~0.2 s round trip to the cloud DB
+    if c is not None and time.monotonic() - used.get(key, 0) > PING_AFTER_IDLE_S:
         try:
             c.ping(reconnect=False)
         except pymysql.Error:
             c = None  # server closed it (idle timeout, restart): reconnect below
     if c is None:
         c = conns[key] = pymysql.connect(**args)
+    used[key] = time.monotonic()
     try:
         yield c
     except BaseException:
