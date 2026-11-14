@@ -253,22 +253,33 @@ function beginLiveRequest(initialText = "") {
 
 function collectLiveRequest(transcript) {
   if (!liveRequest) return;
-  const cleaned = transcript.replace(/^\s*(?:hey|hi)?\s*vimo\b[,.!?\s]*/i, "").trim();
+  const cleaned = wakeCommand(transcript) ?? transcript.trim();
   if (cleaned) liveRequest.text = cleaned;
   clearTimeout(liveRequest.pauseTimer);
   if (liveRequest.text) liveRequest.pauseTimer = setTimeout(finishLiveRequest, TURN_SILENCE_MS);
 }
 
 function handleLiveTurn(transcript) {
-  const match = transcript.toLowerCase().match(/\b(?:hey|hi)?\s*vimo\b\s*(.*)/);
-  if (!match) return;
+  const command = wakeCommand(transcript);
+  if (command === null) return;
   reportVoiceEvent("wake_detected");
-  const command = match[1].trim();
   if (!command) {
     beginLiveRequest();
     return;
   }
   beginLiveRequest(command);
+}
+
+function wakeCommand(transcript) {
+  // Speech recognition commonly returns "Vimo", "Hey, Vimo", or "Hi Vimo".
+  // The previous expression accidentally required a space before Vimo, which
+  // made the single-word wake phrase impossible to match.
+  const normalized = String(transcript).toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const match = normalized.match(/\b(?:(?:hey|hi)\s+)?vimo\b\s*(.*)/u);
+  return match ? match[1].trim() : null;
 }
 
 async function searchBackendCatalog(query, requiredClaims = []) {
@@ -828,11 +839,10 @@ function startWakeListener() {
   recognition.onresult = (event) => {
     for (let index = event.resultIndex; index < event.results.length; index += 1) {
       const heard = event.results[index][0].transcript;
-      const match = heard.toLowerCase().match(/\b(?:hey|hi)?\s*vimo\b\s*(.*)/);
-      if (!match) continue;
+      const command = wakeCommand(heard);
+      if (command === null) continue;
       stopWakeListener();
       reportVoiceEvent("browser_wake_detected");
-      const command = match[1].trim();
       if (command) sendElevenTurn(command);
       else {
         setVimoState("Vimo is listening", "Tell me what your kitchen needs.", true);
