@@ -8,7 +8,7 @@
       "language": "en",
       "prompt": {
         "custom_llm": null,
-        "ignore_default_personality": false,
+        "ignore_default_personality": true,
         "knowledge_base": [],
         "llm": "gemini-3.8-flash",
         "max_tokens": 80,
@@ -174,8 +174,8 @@
     "turn": {
       "mode": "turn",
       "silence_end_call_timeout": -1,
-      "turn_timeout": 2,
-      "turn_eagerness": "eager",
+      "turn_timeout": 7,
+      "turn_eagerness": "normal",
       "turn_model": "turn_v3"
     }
   },

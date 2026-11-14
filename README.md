@@ -37,6 +37,18 @@ the working directory. Set `AIMO_API_URL` when the REST API is not at
 `http://127.0.0.1:8000`. The tools are `search_products`, `get_offers`,
 `place_order`, `get_order_status`, and `list_substitutes`.
 
+## Vimo live-agent configuration
+
+`agent_configs/vimo-live.json` is the reviewed source for the ElevenLabs agent's prompt and turn-taking settings.
+It is not deployed with the API. Review the dry run, then explicitly publish it with an environment-provided
+`ELEVENLABS_API_KEY`. The publisher refuses to update a branch unless ElevenLabs reports it receives 100% of live
+traffic; deploy or merge the intended branch first.
+
+```bash
+uv run python scripts/publish_vimo_agent.py
+uv run python scripts/publish_vimo_agent.py --apply
+```
+
 ## Buyer demo (T10–T11)
 
 After the catalog setup above, run all three P3 scenarios with one command:
