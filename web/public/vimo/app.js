@@ -35,6 +35,10 @@ let liveRequest = null;
 let liveAnalyser = null;
 let microphoneMonitor = null;
 let elevenConversation = null;
+let elevenStarting = null;  // in-flight start: auto-start + button click must not open two sessions (two voices)
+let captionTimer = null;
+let speakAudio = null;
+let speakId = 0;
 let elevenSleepTimer = null;
 let backendPollTimer = null;
 const TURN_SILENCE_MS = 1200;
@@ -100,21 +104,48 @@ function reportVoiceEvent(kind, detail = "") {
   }).catch(() => {});
 }
 
+function showCaption(text, hideAfterMs = 0) {
+  const el = $("#vimo-caption");
+  if (!el?.showPopover || !text) return;  // Popover API: Chrome/Edge 114+, Safari 17+
+  clearTimeout(captionTimer);
+  el.textContent = text;
+  if (el.matches(":popover-open")) el.hidePopover();
+  el.showPopover();  // top layer, re-shown per line so it stays above an open <dialog>
+  if (hideAfterMs) hideCaption(hideAfterMs);
+}
+
+function hideCaption(afterMs = 1500) {
+  clearTimeout(captionTimer);
+  captionTimer = setTimeout(() => { const el = $("#vimo-caption"); if (el?.matches(":popover-open")) el.hidePopover(); }, afterMs);
+}
+
 async function speak(text) {
   if (!state.voice) return;
+  // one voice at a time: stop the previous line; the live ElevenLabs agent already speaks for itself
+  const id = ++speakId;  // a newer line supersedes this one (its audio, its caption timer)
+  if (speakAudio) speakAudio.pause();
+  if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+  if (elevenStarting || elevenConversation) { showCaption(text, 4000 + text.length * 40); return; }
+  showCaption(text);
+  try { await speakAloud(text, id); } finally { if (id === speakId) hideCaption(); }
+}
+
+async function speakAloud(text, id) {
   try {
     const response = await fetch("/experience/speak", {
       method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({text}),
     });
     if (response.ok) {
-      const audio = new Audio(URL.createObjectURL(await response.blob()));
-      audio.play();
-      await new Promise((resolve) => { audio.onended = resolve; audio.onerror = resolve; });
+      const blob = await response.blob();
+      if (id !== speakId) return;  // superseded while fetching: never start a second voice
+      const audio = new Audio(URL.createObjectURL(blob));
+      speakAudio = audio;
+      audio.play().catch(() => audio.onerror?.());
+      await new Promise((resolve) => { audio.onended = resolve; audio.onerror = resolve; audio.onpause = resolve; });
       return;
     }
   } catch (_) { /* Browser speech remains a local demo fallback. */ }
-  if (!("speechSynthesis" in window)) return;
-  window.speechSynthesis.cancel();
+  if (!("speechSynthesis" in window) || id !== speakId) return;
   const message = new SpeechSynthesisUtterance(text);
   message.rate = 1.04;
   const finished = new Promise((resolve) => { message.onend = resolve; message.onerror = resolve; });
@@ -352,8 +383,13 @@ function showBackendApprovalPopup() {
   return openDecisionConfirmation();
 }
 
-async function startElevenLive() {
-  if (elevenConversation) return;
+function startElevenLive() {
+  if (elevenConversation) return Promise.resolve();
+  elevenStarting ??= connectElevenLive().finally(() => { elevenStarting = null; });
+  return elevenStarting;
+}
+
+async function connectElevenLive() {
   setVimoState("Vimo is connecting", "Starting your live Vimo conversation…", true);
   const sessionResponse = await fetch("/experience/elevenlabs/signed-url");
   if (!sessionResponse.ok) throw new Error("Could not start the ElevenLabs live session");
@@ -412,8 +448,14 @@ async function startElevenLive() {
       await loadDecision();
       startBackendDecisionPolling();
     },
+    onMessage: (event) => {
+      // agent replies arrive as text when it starts speaking: show them as subtitles
+      const who = event?.source || event?.role;
+      if ((who === "ai" || who === "agent") && event?.message) showCaption(event.message);
+    },
     onModeChange: (event) => {
       const mode = typeof event === "string" ? event : event?.mode;
+      if (mode === "listening") hideCaption(2500);
       if (mode === "speaking") {
         clearElevenSleepTimer();
         setVimoState("Vimo is speaking", "You can interrupt me at any time.");
@@ -428,10 +470,12 @@ async function startElevenLive() {
     },
     onError: () => {
       elevenConversation = null;
+      hideCaption(0);
       setVimoState("Vimo needs attention", "The live conversation disconnected. Select Talk to Vimo to reconnect.");
     },
     onDisconnect: () => {
       elevenConversation = null;
+      hideCaption(0);
       clearInterval(backendPollTimer);
       backendPollTimer = null;
     },
@@ -708,6 +752,7 @@ function handleOnboardingAnswer(transcript) {
 }
 
 function startVimo({announce = true} = {}) {
+  if (elevenStarting || elevenConversation) return;  // already connecting or live: a second start means a second voice
   if (!localStorage.getItem("aimo-rules")) {
     const defaultRules = {
       buyer: "Hotel North", limit: "500", budget: "2000", claim: "Lactose-free", substitutes: "on",
@@ -730,7 +775,11 @@ function startVimo({announce = true} = {}) {
   });
 }
 
+let legacyStarted = false;
+
 function startLegacyVimo(announce, alert) {
+  if (legacyStarted) return;  // a retry after an ElevenLabs failure must not start a second listener/voice
+  legacyStarted = true;
   // Browser recognition is the lowest-latency wake-word path when available;
   // Gemini Live remains the cross-browser continuous-audio path.
   startWakeListener();
@@ -908,7 +957,6 @@ if (savedRules) {
 renderJury();
 renderTimeline();
 loadDecision();
-// Once microphone access has been granted, Vimo arms itself on every page
-// visit. The visible button is retained only for browsers that require a
-// one-time user gesture before they permit microphone/audio access.
-setTimeout(() => startVimo({announce: false}), 350);
+// Browsers block audio (and should ask for the mic) only after a click, so the web page starts on "Talk to Vimo".
+// Electron enables autoplay and grants the mic, so the desktop app can start right away.
+if (/Electron/.test(navigator.userAgent)) setTimeout(() => startVimo({announce: false}), 350);
