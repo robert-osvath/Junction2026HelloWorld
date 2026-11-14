@@ -128,3 +128,11 @@ def test_mariadb_rehashed_tail_edit_detected():
                     ('{"i": 99}', forged.payload_hash, forged.hash, last.id))
     r = store.verify()
     assert not r.ok and r.broken_at == last.id
+
+
+def test_db_url_parsing_ssl_and_encoded_password():
+    from app.db import connect_args
+    a = connect_args("mysql://app%40x:p%40ss%2Fw@db.example.com:4006/aimo?ssl=true")
+    assert (a["user"], a["password"], a["host"], a["port"], a["database"]) == ("app@x", "p@ss/w", "db.example.com", 4006, "aimo")
+    assert a["ssl"]["ca"]
+    assert "ssl" not in connect_args("mysql://aimo:aimo@127.0.0.1:3306/aimo")
