@@ -73,7 +73,11 @@ def decode_tool_result(name: str, result: Any) -> Any:
     {"result": [...]}; reading only the first text item silently truncated lists to their first element."""
     structured = getattr(result, "structuredContent", None)
     if isinstance(structured, dict):
-        return structured["result"] if set(structured) == {"result"} else structured
+        # FastMCP wraps only non-object returns as {"result": ...}; our list tools are the only such case,
+        # so unwrap lists only and never strip a dict tool's own "result" field
+        if set(structured) == {"result"} and isinstance(structured["result"], list):
+            return structured["result"]
+        return structured
     texts = [item.text for item in result.content if hasattr(item, "text")]
     if not texts:
         raise RuntimeError(f"MCP tool {name} returned no text content")

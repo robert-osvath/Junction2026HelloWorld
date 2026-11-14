@@ -119,3 +119,15 @@ def test_decode_tool_result_keeps_whole_lists():
     assert decode_tool_result("t", NS(structuredContent=None, content=items)) == [{"product_id": "a"}, {"product_id": "b"}]
     assert decode_tool_result("t", NS(structuredContent={"id": "o1", "status": "placed"}, content=[])) == {"id": "o1", "status": "placed"}
     assert decode_tool_result("t", NS(structuredContent=None, content=[NS(text='{"id": "o1"}')])) == {"id": "o1"}
+
+
+def test_select_offer_stays_within_budget_and_dict_results_are_not_unwrapped():
+    from types import SimpleNamespace as NS
+    from agent.buyer import select_offer
+    from agent.mcp_tools import decode_tool_result
+    # a verified offer over budget must not beat an in-budget estimated one
+    assert select_offer([_offer("ver", 2600, stock="verified"), _offer("est", 1500)], budget_eur=2500).product_id == "est"
+    # nothing fits: still choose (the jury explains the rejection)
+    assert select_offer([_offer("a", 3000), _offer("b", 2800)], budget_eur=2500).product_id == "b"
+    assert decode_tool_result("t", NS(structuredContent={"result": {"id": "x"}}, content=[])) == {"result": {"id": "x"}}
+    assert decode_tool_result("t", NS(structuredContent={"result": []}, content=[])) == []

@@ -74,12 +74,15 @@ def parse_need(request: str, *, today: date | None = None) -> Need:
 _STOCK_RANK = {"verified": 0, "estimated": 1, "none": 2}
 
 
-def select_offer(offers: list[Offer]) -> Offer:
-    """Pick the one offer to order: orderable (not sales-blocked) first, then the strongest stock
-    evidence (verified > estimated > none), then the lowest total. Ties keep search order."""
+def select_offer(offers: list[Offer], budget_eur: float | None = None) -> Offer:
+    """Pick the one offer to order. Only offers within the mandate budget are considered (all of them
+    if none fit, so the jury can still explain the rejection); among those: orderable (not sales-blocked)
+    first, then the strongest stock evidence (verified > estimated > none), then the lowest total.
+    Ties keep search order."""
     if not offers:
         raise ValueError("no offers to choose from")
-    return min(offers, key=lambda o: (o.sales_block, _STOCK_RANK.get(o.evidence.stock, 3), o.total_eur))
+    affordable = [o for o in offers if budget_eur is None or o.total_eur <= budget_eur] or offers
+    return min(affordable, key=lambda o: (o.sales_block, _STOCK_RANK.get(o.evidence.stock, 3), o.total_eur))
 
 
 class BuyerAgent:
@@ -108,7 +111,7 @@ class BuyerAgent:
             return BuyerResult("rejected", "No deliverable offers were returned.", need)
         # /offers returns ALTERNATIVES for one need (each already covers the full quantity), not order
         # lines: ordering them all would buy the quantity several times over and blow the budget.
-        chosen = select_offer(offers)
+        chosen = select_offer(offers, budget_eur=mandate.budget_per_order_eur)
         # The phrase is an explicit demo condition, not a fabricated stock assertion:
         # the server's Tier 0 juror produces the substitute path from this evidence.
         if "out of stock" in request.lower():
