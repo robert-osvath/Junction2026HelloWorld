@@ -26,7 +26,7 @@ class Fake:
             return self.script.pop(0)
         src = PRICE if path.endswith("price") else AVAIL
         ids = set(body["products"])
-        return httpx.Response(200, json=[x for x in src if x["product"] in ids])
+        return httpx.Response(200, json={**src, "products": [x for x in src["products"] if x["productId"] in ids]})
 
     def n(self, suffix):
         return sum(1 for c in self.calls if c[0].endswith(suffix))
@@ -40,35 +40,30 @@ def make(fake, **kw):
     return c, sleeps, t
 
 
-def test_parse_price_and_missing():
+def test_parse_price_and_unknown_id_absent():
     c, _, _ = make(Fake())
-    r = c.prices(["463038", "460002", "bogus"], D)
-    assert set(r) == {"463038", "460002"}
+    r = c.prices(["463038", "460000", "999999999"], D)
+    assert set(r) == {"463038", "460000"}  # bogus id comes back as error:true -> absent
     e = r["463038"]
     assert (e.catalog_price_eur, e.list_price_eur, e.comparison_price_eur) == (31.31, 36.83, 1.57)
-    assert e.comparison_unit == "L" and e.vat_rate == 13.5 and e.net_price_found
-    assert r["460002"].catalog_price_eur is None and not r["460002"].net_price_found
+    assert e.comparison_unit == "L" and e.vat_rate == 13.5 and not e.net_price_found
+    assert r["460000"].comparison_unit == "KG"
 
 
 def test_parse_availability():
     fake = Fake()
     c, _, _ = make(fake)
-    r = c.availability(["463038", "460001", "bogus"], D)
-    assert "bogus" not in r
+    r = c.availability(["463038", "460000", "460004", "999999999"], D)
+    assert set(r) == {"463038", "460000"}  # no logisticModel / empty scheduleLines -> absent
     eila = r["463038"]
     assert eila.logistic_model == "Terminal" and eila.quantity is None
-    assert eila.closing_time.tzinfo is not None and eila.available_date == date(2026, 11, 16)
-    st = r["460001"]
-    assert st.logistic_model == "Stock" and st.quantity == 240 and not st.sales_block
+    assert eila.closing_time.tzinfo is not None and eila.closing_time.hour == 15
+    assert eila.available_date == date(2026, 11, 16) and not eila.sales_block
+    st = r["460000"]
+    assert st.logistic_model == "Stock" and st.quantity == 48
     assert fake.calls[0][2]["x-api-key"] == "k"
     assert fake.calls[0][1] == {"customer": "1", "requestedDate": "2026-11-17",
-                                "products": ["463038", "460001", "bogus"]}
-
-
-def test_sales_block_and_no_schedule():
-    c, _, _ = make(Fake())
-    a = c.availability(["460002"], D)["460002"]
-    assert a.sales_block and a.available_date is None
+                                "products": ["463038", "460000", "460004", "999999999"]}
 
 
 def test_20_ids_one_call_per_api_and_cache_hit():
@@ -90,8 +85,8 @@ def test_partial_cache_only_requests_uncached():
     fake = Fake()
     c, _, _ = make(fake)
     c.prices(["463038"], D)
-    c.prices(["463038", "460001"], D)
-    assert fake.calls[1][1]["products"] == ["460001"]
+    c.prices(["463038", "460000"], D)
+    assert fake.calls[1][1]["products"] == ["460000"]
 
 
 def test_1500_ids_two_calls():
