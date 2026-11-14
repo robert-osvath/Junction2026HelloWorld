@@ -152,3 +152,8 @@ def test_endpoint_bad_quantity_422(q):
            '"deliver_by": "2026-11-16"}, "product_ids": ["463038"], "delivery_date": "2026-11-16"}' % q)
     r = c.post("/offers", content=raw, headers={"content-type": "application/json"})
     assert r.status_code == 422
+
+
+def test_round_to_lot_never_returns_zero_for_huge_lots():
+    assert round_to_lot(1, 1e9) == 1_000_000_000
+    assert round_to_lot(7, 1e12) == 1_000_000_000_000

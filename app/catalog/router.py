@@ -1,11 +1,11 @@
-"""P1 (T1-T4). Mock: returns fixtures."""
+"""P1 catalog endpoints: T2 search (mock until the T2 PR lands), T4 offers (real)."""
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.catalog import store
 from app.catalog.aimo import AimoClient, AimoError, get_client
-from app.catalog.offers import get_offers
+from app.catalog.offers import InvalidOfferRequest, get_offers
 from app.mocks import load
 from contracts import CatalogItem, Offer, OffersRequest
 
@@ -27,7 +27,7 @@ def offers(req: OffersRequest, client: AimoClient = Depends(get_client)) -> list
     except AimoError as e:
         logging.getLogger(__name__).warning("aimo error: %s", e)
         raise HTTPException(status_code=502, detail="Valio Aimo API unavailable") from e
-    except ValueError as e:
+    except InvalidOfferRequest as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
     finally:
         if conn is not None:

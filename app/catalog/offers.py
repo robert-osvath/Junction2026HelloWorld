@@ -56,7 +56,7 @@ def round_to_lot(n: int, lot: float | None) -> int:
         step = lot * k
         if abs(step - round(step)) < 1e-9:
             step = round(step)
-            return math.ceil(n / step - 1e-9) * step
+            return max(math.ceil(n / step - 1e-9), 1) * step
     return math.ceil(n / lot) * math.ceil(lot)
 
 
@@ -138,9 +138,13 @@ def build_offers(need: Need, product_ids: Iterable[str],
     return offers
 
 
+class InvalidOfferRequest(ValueError):
+    """A client error in the request (maps to HTTP 422); other errors are server faults."""
+
+
 def get_offers(conn: sqlite3.Connection, client: AimoClient, req: OffersRequest) -> list[Offer]:
     if not (math.isfinite(req.need.quantity) and req.need.quantity > 0):
-        raise ValueError("quantity must be a positive finite number")
+        raise InvalidOfferRequest("quantity must be a positive finite number")
     ids = list(dict.fromkeys(str(p) for p in req.product_ids))
     rows = store.offer_rows(conn, ids)
     known = [p for p in ids if p in rows]
