@@ -84,6 +84,14 @@ SCHEMA = [
         FOREIGN KEY (product_id) REFERENCES products(id),
         FOREIGN KEY (substitute_id) REFERENCES products(id)
     )""",
+    # Gemini embeddings (float32, L2-normalised). Deliberately NOT in TABLES and without a foreign key:
+    # a catalog reload must not wipe paid-for vectors; stale rows are detected by text_hash.
+    """CREATE TABLE IF NOT EXISTS product_embeddings (
+        product_id VARCHAR(32) PRIMARY KEY,
+        model      VARCHAR(64) NOT NULL,
+        text_hash  CHAR(64) NOT NULL,
+        vector     BLOB NOT NULL
+    )""",
     "CREATE INDEX IF NOT EXISTS idx_claims_claim ON product_claims(claim)",
     "CREATE INDEX IF NOT EXISTS idx_allergens_code ON product_allergens(code, level)",
     "CREATE INDEX IF NOT EXISTS idx_products_category ON products(category)",
@@ -237,3 +245,58 @@ def offer_rows(conn: sqlite3.Connection, ids: list[str]) -> dict[str, dict]:
         f"LEFT JOIN product_units u ON u.product_id = p.id AND u.unit_id = p.sales_unit "
         f"WHERE p.id IN ({marks})", ids).fetchall()
     return {r["id"]: dict(r) for r in rows}
+
+
+# --- embeddings ---
+
+def embedding_hashes(conn: sqlite3.Connection, model: str) -> dict[str, str]:
+    return {r[0]: r[1] for r in conn.execute(
+        "SELECT product_id, text_hash FROM product_embeddings WHERE model = ?", (model,))}
+
+
+def embedding_source_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    return conn.execute("SELECT id, name_en, name_fi, brand, key_ingredients_en FROM products ORDER BY id").fetchall()
+
+
+def upsert_embeddings(conn: sqlite3.Connection, rows: Iterable[tuple[str, str, str, bytes]]) -> None:
+    """rows: (product_id, model, text_hash, vector blob). Commits."""
+    with conn:
+        conn.executemany("INSERT OR REPLACE INTO product_embeddings (product_id, model, text_hash, vector) "
+                         "VALUES (?, ?, ?, ?)", list(rows))
+
+
+def embedding_count(conn: sqlite3.Connection, model: str) -> int:
+    return conn.execute("SELECT count(*) FROM product_embeddings WHERE model = ?", (model,)).fetchone()[0]
+
+
+def embedding_blobs(conn: sqlite3.Connection, model: str) -> list[tuple[str, bytes]]:
+    """(product_id, vector blob) for products that still exist, in id order."""
+    return [(r[0], r[1]) for r in conn.execute(
+        "SELECT e.product_id, e.vector FROM product_embeddings e JOIN products p ON p.id = e.product_id "
+        "WHERE e.model = ? ORDER BY e.product_id", (model,))]
+
+
+def db_file(conn: sqlite3.Connection) -> str | None:
+    """Path of the main database file, None for in-memory. SQLite-only."""
+    return conn.execute("PRAGMA database_list").fetchone()[2] or None
+
+
+def rows_by_ids(conn: sqlite3.Connection, ids: list[str], claims: list[str],
+                exclude_allergens: list[str], category: str) -> list[sqlite3.Row]:
+    """Products by id with the same filters as search_rows (bm25 = 0: no text match)."""
+    if not ids:
+        return []
+    where, args = [f"p.id IN ({','.join('?' * len(ids))})"], list(ids)
+    if claims:
+        where.append(f"(SELECT count(*) FROM product_claims c WHERE c.product_id = p.id "
+                     f"AND c.claim IN ({','.join('?' * len(claims))})) = ?")
+        args += [*claims, len(set(claims))]
+    if exclude_allergens:
+        where.append(f"NOT EXISTS (SELECT 1 FROM product_allergens a WHERE a.product_id = p.id "
+                     f"AND a.level IN ('CONTAINS', 'MAY_CONTAIN') "
+                     f"AND a.code IN ({','.join('?' * len(exclude_allergens))}))")
+        args += exclude_allergens
+    if category:
+        where.append("p.category = ?")
+        args.append(category)
+    return conn.execute(f"SELECT p.*, 0.0 AS bm25 FROM products p WHERE {' AND '.join(where)}", args).fetchall()
