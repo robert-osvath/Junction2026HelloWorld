@@ -52,13 +52,13 @@ export default function Overview() {
             <small>{pending.filter((o) => dueLabel(o.need.deliver_by, today)).length} due today or overdue</small></span>
           <span className="summary-go" aria-hidden="true"><Icon name="arrow" /></span>
         </Link>
-        <Link className="summary-card peach-card" href="/approvals?status=substitutes_proposed">
+        <Link className="summary-card peach-card" href="/jury">
           <span className="summary-icon"><Icon name="users" /></span>
           <span><span className="label">Jury decisions</span><strong>{subs.length} substitute {subs.length === 1 ? "choice" : "choices"}</strong>
             <small>Pick a substitute or reject</small></span>
           <span className="summary-go" aria-hidden="true"><Icon name="arrow" /></span>
         </Link>
-        <Link className="summary-card cream-card" href="/approvals?status=placed">
+        <Link className="summary-card cream-card" href="/sourcing?status=placed">
           <span className="summary-icon"><Icon name="briefcase" /></span>
           <span><span className="label">Placed orders</span><strong>{eur(of("placed").reduce((s, o) => s + total(o), 0))}</strong>
             <small>{of("placed").length} placed, {pending.length + subs.length} waiting</small></span>

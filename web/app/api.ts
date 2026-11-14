@@ -60,3 +60,6 @@ export const helsinkiToday = (now: number) => new Date(now).toLocaleDateString("
 export const day = (iso: string) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
 // "Due today" / "Overdue" for an order still waiting on someone; "" when not due yet or unknown.
 export const dueLabel = (deliverBy: string, today: string) => (!today || deliverBy > today ? "" : deliverBy === today ? "Due today" : "Overdue");
+
+// Substitute names carry the ranker's note, e.g. "Valio … [Best: same-category match, -8.5% …]": show the product only.
+export const productName = (name: string) => name.replace(/\s*\[[^\]]*\]\s*$/, "");
