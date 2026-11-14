@@ -43,3 +43,7 @@ Feature branch per change (`<lane>/<ticket>-<slug>` or `<lane>/chore-<slug>`), P
 - **Database:** MariaDB Cloud. Use an app user without `DELETE HISTORY`/`DROP` (see `db/migrations/000_init.sql`);
   tables are created by the app on startup.
 - **UI on Vercel:** import the repo, root directory `web`, env `NEXT_PUBLIC_API_URL=<modal URL>`.
+- **Live:** UI https://junction2026-hello-world.vercel.app · API https://weirdlyviral--aimo-trusted-trade-api.us-east.modal.run
+- **Changing the Modal secret** (`modal secret create --force aimo-api ...`): the warm container keeps the old values,
+  so run `uv run modal app stop aimo-trusted-trade -y && uv run modal deploy modal_app.py`. New UI origins must be
+  added to `CORS_ORIGINS` (comma-separated).
