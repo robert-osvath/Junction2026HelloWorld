@@ -187,7 +187,8 @@ def save_buyer_policy(request: BuyerPolicyRequest) -> BuyerPolicyResponse:
         if getattr(request, field) is not None:
             update[target] = getattr(request, field)
     if request.required_claims is not None:
-        claims = [c.strip().upper() for c in request.required_claims if c.strip()]
+        claims = [re.sub(r"^(\w+)_FREE$", r"FREE_FROM_\1", re.sub(r"[ -]+", "_", c.strip().upper()))
+                  for c in request.required_claims if c.strip()]  # "gluten-free" -> FREE_FROM_GLUTEN
         _validate_claims(claims)
         update["required_claims"] = claims
     if request.banned_allergens is not None:
