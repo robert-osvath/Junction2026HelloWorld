@@ -20,6 +20,9 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 def passphrase() -> str:
+    """The demo passphrase; "" turns the gate off. DEMO_GATE=off opens the demo without editing the secret."""
+    if os.getenv("DEMO_GATE", "").lower() == "off":
+        return ""
     return os.getenv("DEMO_PASSPHRASE") or ""
 
 

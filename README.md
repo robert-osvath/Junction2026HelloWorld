@@ -8,7 +8,7 @@ An open ordering interface that Valio Aimo owns and that any buyer's AI agent ca
 
 ## Try it (3 minutes)
 
-**Live:** **https://vimo-aimo.vercel.app** (the demo passphrase is in our submission). Use Chrome and allow the microphone.
+**Live:** **https://vimo-aimo.vercel.app**, open to everyone. Use Chrome and allow the microphone.
 
 1. Open **[/vimo](https://vimo-aimo.vercel.app/vimo/index.html)** and select **Talk to Vimo**, or type in the box.
 2. **Single order:** *"Vimo, order 20 litres of lactose-free milk for Monday."*
@@ -98,7 +98,7 @@ agent_configs/  tracked ElevenLabs agent config · scripts/  data, demo, benchma
 ## For developers
 
 ### Demo passphrase gate
-When `DEMO_PASSPHRASE` is set (Modal secret `aimo-api`, or your local `.env`), every API call needs either the `aimo_demo` cookie (`POST /auth/unlock {passphrase}`, the web `/unlock` page) or the header `X-Demo-Pass`. The exceptions are `/health`, `/auth/*` and the static `/game` and `/vimo` pages. When it is unset the gate is off (CI, tests). Never commit the passphrase. To revoke sessions, change `DEMO_PASSPHRASE` or `DEMO_SESSION_SECRET`.
+Currently **off** for judging: `DEMO_GATE=off` in `modal_app.py` (API) and in the Vercel env (UI redirect). Remove both to turn it back on. When `DEMO_PASSPHRASE` is set (Modal secret `aimo-api`, or your local `.env`) and the gate is on, every API call needs either the `aimo_demo` cookie (`POST /auth/unlock {passphrase}`, the web `/unlock` page) or the header `X-Demo-Pass`. The exceptions are `/health`, `/auth/*` and the static `/game` and `/vimo` pages. When it is unset the gate is off (CI, tests). Never commit the passphrase. To revoke sessions, change `DEMO_PASSPHRASE` or `DEMO_SESSION_SECRET`.
 
 ### Vimo live-agent configuration
 `agent_configs/vimo-live.json` is the reviewed source for the ElevenLabs agent's prompt, client tools and turn settings. Publishing replaces the live prompt and attaches exactly the tracked tools: existing ones are updated in place by name and new ones are created. Copy any dashboard-only edits into the file first. The dry run lists each tool as keep, update or create. Both commands need `ELEVENLABS_API_KEY`.
