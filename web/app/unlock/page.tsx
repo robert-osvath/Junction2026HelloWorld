@@ -7,7 +7,8 @@ function safeNext(n: string | null) {
   if (!n?.startsWith("/")) return "/";
   try {
     const u = new URL(n, window.location.origin);
-    return u.origin === window.location.origin ? u.pathname + u.search + u.hash : "/";
+    const path = u.pathname + u.search + u.hash;
+    return u.origin === window.location.origin && !path.startsWith("//") ? path : "/";  // "/.//x" normalizes to "//x"
   } catch { return "/"; }
 }
 
