@@ -213,3 +213,33 @@ class StandingOrderDriftResponse(BaseModel):
     delta_pct: float
     status: Literal["within_pattern", "review_required"]
     explanation: str
+
+
+# --- last-minute event plan ---
+
+class EventPlanRequest(BaseModel):
+    recipes: list[PlannedRecipe] = Field(min_length=1, max_length=30)
+    inventory: list[InventoryLevel] = Field(default_factory=list, max_length=1000)
+    policy_id: str | None = Field(default=None, max_length=64)
+    buyer_name: str | None = Field(default=None, max_length=120)
+
+
+class EventPlanLine(BaseModel):
+    product_intent: str  # the ingredient the recipes call for
+    quantity: float
+    unit: Literal["L", "kg", "pcs"]
+    required_by: date
+    recipe_names: list[str]
+    status: Literal["in_time", "substitute", "unsourceable"]
+    reason: str
+    # what to order (the ingredient itself, or its recipe substitute); None when unsourceable
+    order_intent: str | None = None
+    order_quantity: float | None = None
+    order_unit: Literal["L", "kg", "pcs"] | None = None
+    offer: Offer | None = None
+    substitution_note: str | None = None
+
+
+class EventPlanResponse(BaseModel):
+    lines: list[EventPlanLine]
+    summary: str

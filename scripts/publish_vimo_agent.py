@@ -1,4 +1,4 @@
-"""Publish the tracked Vimo turn settings to its ElevenLabs agent branch.
+"""Publish the tracked Vimo prompt, client tools and turn settings to its ElevenLabs agent branch.
 
 Run without ``--apply`` to inspect the exact target. Publishing requires
 ``ELEVENLABS_API_KEY`` and is deliberately an explicit, manual release step.
@@ -34,7 +34,11 @@ def turn_patch(config: dict) -> dict:
     turn = config["conversation_config"]["turn"]
     return {
         "conversation_config": {
-            "agent": {"prompt": {"ignore_default_personality": prompt["ignore_default_personality"]}},
+            "agent": {"prompt": {
+                "ignore_default_personality": prompt["ignore_default_personality"],
+                "prompt": prompt["prompt"],
+                "tools": prompt["tools"],  # the tracked list replaces the live one: tools edited only in the dashboard are dropped
+            }},
             "turn": {
                 "turn_timeout": turn["turn_timeout"],
                 "turn_eagerness": turn["turn_eagerness"],
@@ -84,7 +88,7 @@ def main() -> None:
         timeout=30,
     )
     response.raise_for_status()
-    print(f"Published Vimo turn settings to agent {agent_id} branch {branch_id}")
+    print(f"Published Vimo prompt, tools and turn settings to agent {agent_id} branch {branch_id}")
 
 
 if __name__ == "__main__":

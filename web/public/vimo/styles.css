@@ -116,6 +116,14 @@ a { color: var(--green-2); }
 /* subtitles: the live transcript, shown in the top layer above dialogs */
 .vimo-caption { position: fixed; inset: auto auto 24px 50%; margin: 0; transform: translateX(-50%); width: min(720px, calc(100% - 32px)); padding: 14px 18px; border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 12px; background: rgba(18, 61, 49, 0.96); color: #e2ebe7; font-size: 16px; line-height: 1.5; text-align: center; pointer-events: none; box-shadow: 0 10px 35px rgba(18, 61, 49, 0.25); }
 .vimo-caption:empty { display: none; }
+.order-toast { position: fixed; inset: 24px 24px auto auto; margin: 0; width: min(380px, calc(100% - 32px)); padding: 14px 16px; border: 1px solid var(--line); border-left: 6px solid var(--green-2); border-radius: 12px; background: var(--white); color: var(--ink); box-shadow: 0 16px 40px rgba(18, 61, 49, 0.18); }
+.order-toast.pending { border-left-color: var(--peach); }
+.order-toast strong { display: block; font: 700 15px var(--heading); }
+.order-toast span { color: var(--muted); font-size: 13px; }
+#event-lines { display: grid; gap: 8px; max-height: 50vh; overflow-y: auto; }
+#event-lines .note { font-style: italic; }
+.status.late, .status.rejected { background: var(--danger-soft); color: var(--danger); }
+.status.swap, .status.pending_approval, .status.substitutes_proposed { background: var(--peach-soft); color: #8a4a2e; }
 
 /* ---------- Approval banner, metrics, panels ---------- */
 .approval-banner { margin-bottom: 24px; padding: 20px 24px; border-radius: 16px; background: var(--peach-soft); display: flex; gap: 16px; align-items: center; }

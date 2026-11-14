@@ -39,15 +39,27 @@ def test_vimo_uses_its_explicit_conversation_rules() -> None:
     assert prompt["ignore_default_personality"] is True
 
 
-def test_publish_script_only_updates_vimo_turn_settings() -> None:
-    patch = publish_module().turn_patch(live_config())
+def test_publish_script_only_updates_vimo_prompt_tools_and_turn_settings() -> None:
+    config = live_config()
+    patch = publish_module().turn_patch(config)
+    prompt = config["conversation_config"]["agent"]["prompt"]
 
     assert patch == {
         "conversation_config": {
-            "agent": {"prompt": {"ignore_default_personality": True}},
+            "agent": {"prompt": {"ignore_default_personality": True, "prompt": prompt["prompt"], "tools": prompt["tools"]}},
             "turn": {"turn_timeout": -1, "turn_eagerness": "normal", "speculative_turn": False},
         },
     }
+
+
+def test_vimo_can_plan_and_order_a_last_minute_event() -> None:
+    prompt = live_config()["conversation_config"]["agent"]["prompt"]
+    tools = {t["name"]: t for t in prompt["tools"]}
+
+    assert {"plan_event", "order_event_plan"} <= tools.keys()
+    ingredient = tools["plan_event"]["parameters"]["properties"]["recipes"]["items"]["properties"]["ingredients"]["items"]
+    assert ingredient["required"] == ["product_intent", "quantity_per_serving", "unit"]  # matches RecipeIngredient
+    assert "plan_event" in prompt["prompt"] and "order_event_plan" in prompt["prompt"]
 
 
 def test_publish_script_refuses_a_non_live_branch() -> None:
