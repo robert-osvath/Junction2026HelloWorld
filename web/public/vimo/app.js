@@ -35,6 +35,10 @@ let liveRequest = null;
 let liveAnalyser = null;
 let microphoneMonitor = null;
 let elevenConversation = null;
+let elevenStarting = null;  // in-flight start: auto-start + button click must not open two sessions (two voices)
+let captionTimer = null;
+let speakAudio = null;
+let speakId = 0;
 let elevenSleepTimer = null;
 let backendPollTimer = null;
 const TURN_SILENCE_MS = 1200;
@@ -100,21 +104,45 @@ function reportVoiceEvent(kind, detail = "") {
   }).catch(() => {});
 }
 
+function showCaption(text, hideAfterMs = 0) {
+  const el = $("#vimo-caption");
+  if (!el || !text) return;
+  clearTimeout(captionTimer);
+  el.textContent = text;
+  el.hidden = false;
+  if (hideAfterMs) hideCaption(hideAfterMs);
+}
+
+function hideCaption(afterMs = 1500) {
+  clearTimeout(captionTimer);
+  captionTimer = setTimeout(() => { const el = $("#vimo-caption"); if (el) el.hidden = true; }, afterMs);
+}
+
 async function speak(text) {
   if (!state.voice) return;
+  // one voice at a time: stop the previous line; the live ElevenLabs agent already speaks for itself
+  if (speakAudio) speakAudio.pause();
+  if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+  if (elevenConversation) { showCaption(text, 4000 + text.length * 40); return; }
+  const id = ++speakId;
+  showCaption(text);
+  try { await speakAloud(text); } finally { if (id === speakId) hideCaption(); }  // an interrupted line must not hide the next one
+}
+
+async function speakAloud(text) {
   try {
     const response = await fetch("/experience/speak", {
       method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({text}),
     });
     if (response.ok) {
       const audio = new Audio(URL.createObjectURL(await response.blob()));
-      audio.play();
-      await new Promise((resolve) => { audio.onended = resolve; audio.onerror = resolve; });
+      speakAudio = audio;
+      audio.play().catch(() => audio.onerror?.());
+      await new Promise((resolve) => { audio.onended = resolve; audio.onerror = resolve; audio.onpause = resolve; });
       return;
     }
   } catch (_) { /* Browser speech remains a local demo fallback. */ }
   if (!("speechSynthesis" in window)) return;
-  window.speechSynthesis.cancel();
   const message = new SpeechSynthesisUtterance(text);
   message.rate = 1.04;
   const finished = new Promise((resolve) => { message.onend = resolve; message.onerror = resolve; });
@@ -352,8 +380,13 @@ function showBackendApprovalPopup() {
   return openDecisionConfirmation();
 }
 
-async function startElevenLive() {
-  if (elevenConversation) return;
+function startElevenLive() {
+  if (elevenConversation) return Promise.resolve();
+  elevenStarting ??= connectElevenLive().finally(() => { elevenStarting = null; });
+  return elevenStarting;
+}
+
+async function connectElevenLive() {
   setVimoState("Vimo is connecting", "Starting your live Vimo conversation…", true);
   const sessionResponse = await fetch("/experience/elevenlabs/signed-url");
   if (!sessionResponse.ok) throw new Error("Could not start the ElevenLabs live session");
@@ -412,8 +445,14 @@ async function startElevenLive() {
       await loadDecision();
       startBackendDecisionPolling();
     },
+    onMessage: (event) => {
+      // agent replies arrive as text when it starts speaking: show them as subtitles
+      const who = event?.source || event?.role;
+      if ((who === "ai" || who === "agent") && event?.message) showCaption(event.message);
+    },
     onModeChange: (event) => {
       const mode = typeof event === "string" ? event : event?.mode;
+      if (mode === "listening") hideCaption(2500);
       if (mode === "speaking") {
         clearElevenSleepTimer();
         setVimoState("Vimo is speaking", "You can interrupt me at any time.");
@@ -708,6 +747,7 @@ function handleOnboardingAnswer(transcript) {
 }
 
 function startVimo({announce = true} = {}) {
+  if (elevenStarting || elevenConversation) return;  // already connecting or live: a second start means a second voice
   if (!localStorage.getItem("aimo-rules")) {
     const defaultRules = {
       buyer: "Hotel North", limit: "500", budget: "2000", claim: "Lactose-free", substitutes: "on",
@@ -908,7 +948,6 @@ if (savedRules) {
 renderJury();
 renderTimeline();
 loadDecision();
-// Once microphone access has been granted, Vimo arms itself on every page
-// visit. The visible button is retained only for browsers that require a
-// one-time user gesture before they permit microphone/audio access.
-setTimeout(() => startVimo({announce: false}), 350);
+// Browsers block audio (and should ask for the mic) only after a click, so the web page starts on "Talk to Vimo".
+// Electron enables autoplay and grants the mic, so the desktop app can start right away.
+if (/Electron/.test(navigator.userAgent)) setTimeout(() => startVimo({announce: false}), 350);
