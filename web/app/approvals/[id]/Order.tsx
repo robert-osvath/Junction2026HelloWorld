@@ -18,7 +18,7 @@ function who(a: string) {
 function Lines({ lines }: { lines: Offer[] }) {
   const [now] = useState(() => Date.now());
   return (
-    <table>
+    <div className="table-wrap"><table>
       <thead>
         <tr>
           <th scope="col">Product</th><th scope="col">Quantity</th><th scope="col" className="num">Unit price</th>
@@ -52,7 +52,7 @@ function Lines({ lines }: { lines: Offer[] }) {
           );
         })}
       </tbody>
-    </table>
+    </table></div>
   );
 }
 
@@ -88,17 +88,25 @@ export default function OrderView({ id }: { id: string }) {
   }
 
   const crumbs = <p className="crumbs"><Link href="/approvals">Order approvals</Link> / {id}</p>;
-  if (!order) return <>{crumbs}{err ? <p className="err">{err}</p> : <p>Loading...</p>}</>;
+  if (!order) return <>{crumbs}{err ? <p className="err">{err}</p> : <p className="panel muted">Loading...</p>}</>;
   const canApprove = order.status === "pending_approval";
   const canReject = canApprove || order.status === "substitutes_proposed";
 
   return (
     <>
       {crumbs}
-      <h1>{id}</h1>
-      <div className="panel">
+      <section className="hero">
+        <p className="eyebrow">Order {id.replace("order-", "").slice(0, 8)}</p>
+        <h1>{order.need.text}</h1>
+      </section>
+
+      <section className="panel stack" aria-labelledby="h-decision">
+        <div className="panel-heading">
+          <div><p className="eyebrow">Decision</p><h2 id="h-decision">{canApprove ? "Awaiting your decision" : "Order summary"}</h2></div>
+          <span className={`status s-${order.status}`}>{LABEL[order.status]}</span>
+        </div>
         <dl>
-          <dt>Status</dt><dd className={`s-${order.status}`}>{LABEL[order.status]}</dd>
+          <dt>Order</dt><dd>{id}</dd>
           <dt>Buyer</dt><dd>{order.mandate_id}</dd>
           <dt>Request</dt><dd>{order.need.text}</dd>
           <dt>Total</dt><dd>{eur(total(order))}</dd>
@@ -121,49 +129,56 @@ export default function OrderView({ id }: { id: string }) {
             {canReject && <button className="btn" disabled={busy} onClick={() => setRejecting(true)}>Reject</button>}
           </div>
         )}
-      </div>
+      </section>
 
-      <h2>Order lines</h2>
-      <Lines lines={order.lines} />
+      <section className="panel stack" aria-labelledby="h-lines">
+        <div className="panel-heading"><div><p className="eyebrow">Evidence</p><h2 id="h-lines">Order lines</h2></div></div>
+        <Lines lines={order.lines} />
+      </section>
 
-      <h2>Jury assessment</h2>
-      <table>
-        <thead>
-          <tr><th scope="col">Juror</th><th scope="col">Result</th><th scope="col" className="num">Confidence</th><th scope="col">Reasons</th><th scope="col">Model</th></tr>
-        </thead>
-        <tbody>
-          {order.verdicts.map((v, i) => (
-            <tr key={i}>
-              <td>{v.juror}</td>
-              <td className={`r-${v.decision}`}>{RESULT[v.decision]}</td>
-              <td className="num">{Math.round(v.confidence * 100)}%</td>
-              <td><ul className="bul">{v.reasons.map((r, j) => <li key={j}>{r}</li>)}</ul></td>
-              <td>{v.model ?? "—"}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <section className="panel stack" aria-labelledby="h-jury">
+        <div className="panel-heading"><div><p className="eyebrow">Jury</p><h2 id="h-jury">Jury assessment</h2></div></div>
+        <div className="table-wrap"><table>
+          <thead>
+            <tr><th scope="col">Juror</th><th scope="col">Result</th><th scope="col" className="num">Confidence</th><th scope="col">Reasons</th><th scope="col">Model</th></tr>
+          </thead>
+          <tbody>
+            {order.verdicts.map((v, i) => (
+              <tr key={i}>
+                <td>{v.juror}</td>
+                <td className={`r-${v.decision}`}><span aria-hidden="true" className="mark">{v.decision === "approve" ? "✓" : v.decision === "reject" ? "✕" : "!"}</span> {RESULT[v.decision]}</td>
+                <td className="num">{Math.round(v.confidence * 100)}%</td>
+                <td><ul className="bul">{v.reasons.map((r, j) => <li key={j}>{r}</li>)}</ul></td>
+                <td>{v.model ?? "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table></div>
+      </section>
 
-      {order.substitutes.length > 0 && (<><h2>Substitutes</h2><Lines lines={order.substitutes} /></>)}
+      {order.substitutes.length > 0 && (
+        <section className="panel stack" aria-labelledby="h-subs">
+          <div className="panel-heading"><div><p className="eyebrow">Alternatives</p><h2 id="h-subs">Substitutes</h2></div></div>
+          <Lines lines={order.substitutes} />
+        </section>
+      )}
 
-      <h2>Audit trail</h2>
-      {chain && (chain.ok
-        ? <p className="status-line">Audit log verified — {chain.checked} entries, unchanged</p>
-        : <p className="status-line bad">Audit log broken at {chain.broken_at}</p>)}
-      <table>
-        <thead><tr><th scope="col">Time</th><th scope="col">Who</th><th scope="col">What</th></tr></thead>
-        <tbody>
+      <section className="panel stack" aria-labelledby="h-audit">
+        <div className="panel-heading"><div><p className="eyebrow">Audit</p><h2 id="h-audit">Audit trail</h2></div></div>
+        {chain && (chain.ok
+          ? <p className="status-line">Audit log verified — {chain.checked} entries, unchanged</p>
+          : <p className="status-line bad">Audit log broken at {chain.broken_at}</p>)}
+        <ol className="timeline">
           {events.map((e) => (
-            <tr key={e.id}>
-              <td>{dt(e.ts)}</td><td>{who(e.actor)}</td>
-              <td>
-                {e.human_summary}
-                <details><summary>Show technical details</summary><code>{e.action}<br />{e.hash}</code></details>
-              </td>
-            </tr>
+            <li key={e.id}>
+              <time dateTime={e.ts}>{dt(e.ts)}</time>
+              <strong>{who(e.actor)}</strong>
+              {e.human_summary}
+              <details><summary>Show technical details</summary><code>{e.action}<br />{e.hash}</code></details>
+            </li>
           ))}
-        </tbody>
-      </table>
+        </ol>
+      </section>
     </>
   );
 }
