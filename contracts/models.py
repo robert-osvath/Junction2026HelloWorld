@@ -1,7 +1,7 @@
 from datetime import date, datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 
 Claim = str  # nutritionalClaim / nonAllergen ids, e.g. "FREE_FROM_LACTOSE", "VEGAN"
 Allergen = str  # GS1 codes, e.g. "AM" milk, "AW" gluten
@@ -67,6 +67,7 @@ class Order(BaseModel):
     status: Literal["placed", "pending_approval", "substitutes_proposed", "rejected"]
     confirmation_no: str | None = None
     substitutes: list[Offer] = []
+    created_at: datetime | None = None
 
 
 class AuditEvent(BaseModel):
@@ -123,6 +124,10 @@ class OrderRequest(BaseModel):
     mandate_id: str
     need: Need
     lines: list[Offer]
+
+
+class RejectRequest(BaseModel):
+    reason: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
 
 
 class AuditVerify(BaseModel):

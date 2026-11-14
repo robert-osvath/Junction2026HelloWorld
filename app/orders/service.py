@@ -2,6 +2,7 @@
 import random
 import threading
 import uuid
+from datetime import UTC, datetime
 
 from fastapi import HTTPException
 
@@ -50,7 +51,7 @@ def create(req: OrderRequest) -> Order:
                f"{v.juror} juror says {v.decision} ({v.confidence:.0%}): {'; '.join(v.reasons)}")
     status = STATUS[res.decision]
     o = Order(id=oid, mandate_id=mandate.id, need=req.need, lines=req.lines, verdicts=res.verdicts, status=status,
-              confirmation_no=_confirm() if status == "placed" else None)
+              confirmation_no=_confirm() if status == "placed" else None, created_at=datetime.now(UTC))
     if status == "substitutes_proposed":
         o.substitutes = substitutes(SubstitutesRequest(mandate=mandate, need=req.need, offer=req.lines[0]))
     get_order_store().save(o)
@@ -69,7 +70,7 @@ def get(order_id: str) -> Order:
     return o
 
 
-def _decide(order_id: str, allowed: set[str], new: str, verb: str) -> Order:
+def _decide(order_id: str, allowed: set[str], new: str, verb: str, reason: str | None = None) -> Order:
     with _lock:
         o = get(order_id)
         if o.status not in allowed:
@@ -79,8 +80,10 @@ def _decide(order_id: str, allowed: set[str], new: str, verb: str) -> Order:
         o.confirmation_no = _confirm() if new == "placed" else None
         get_order_store().save(o)
         done = verb.rstrip("e") + "ed"  # approve -> approved, reject -> rejected
-        _audit(order_id, "human", f"order.{done}", {"status": new, "confirmation_no": o.confirmation_no},
-               f"Human {done} {_what(o)}" + (f", confirmation {o.confirmation_no}" if o.confirmation_no else ""))
+        payload = {"status": new, "confirmation_no": o.confirmation_no} if reason is None else {"status": new, "reason": reason}
+        _audit(order_id, "human", f"order.{done}", payload,
+               f"Human {done} {_what(o)}" + (f", confirmation {o.confirmation_no}" if o.confirmation_no else "")
+               + (f". Reason: {reason}" if reason else ""))
         return o
 
 
@@ -88,5 +91,5 @@ def approve(order_id: str) -> Order:
     return _decide(order_id, {"pending_approval"}, "placed", "approve")
 
 
-def reject(order_id: str) -> Order:
-    return _decide(order_id, {"pending_approval", "substitutes_proposed"}, "rejected", "reject")
+def reject(order_id: str, reason: str | None = None) -> Order:
+    return _decide(order_id, {"pending_approval", "substitutes_proposed"}, "rejected", "reject", reason)
