@@ -14,6 +14,7 @@ from app.catalog.router import router as catalog
 from app.experience.router import router as experience
 from app.jury.router import router as jury
 from app.orders.router import router as orders
+from app.planning.router import router as planning
 
 
 @asynccontextmanager
@@ -31,7 +32,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-for r in (auth, catalog, jury, orders, experience):
+for r in (auth, catalog, jury, orders, experience, planning):
     app.include_router(r)
 
 

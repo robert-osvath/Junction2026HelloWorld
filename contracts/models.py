@@ -142,3 +142,74 @@ class AuditVerify(BaseModel):
     ok: bool
     checked: int
     broken_at: str | None = None
+
+
+# --- kitchen planning ---
+
+class RecipeIngredient(BaseModel):
+    product_intent: str = Field(min_length=1, max_length=160)
+    quantity_per_serving: float = Field(gt=0)
+    unit: Literal["L", "kg", "pcs"]
+    required_claims: list[Claim] = []
+    notes: str | None = Field(default=None, max_length=300)
+
+
+class PlannedRecipe(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    servings: int = Field(gt=0, le=100000)
+    service_date: date
+    ingredients: list[RecipeIngredient] = Field(min_length=1, max_length=100)
+
+
+class InventoryLevel(BaseModel):
+    product_intent: str = Field(min_length=1, max_length=160)
+    quantity: float = Field(ge=0)
+    unit: Literal["L", "kg", "pcs"]
+    usable_until: date | None = None
+
+
+class RecipeGapRequest(BaseModel):
+    recipes: list[PlannedRecipe] = Field(min_length=1, max_length=100)
+    inventory: list[InventoryLevel] = Field(default_factory=list, max_length=1000)
+    today: date
+
+
+class RecipeGap(BaseModel):
+    product_intent: str
+    quantity_needed: float
+    quantity_on_hand: float
+    quantity_to_order: float
+    unit: Literal["L", "kg", "pcs"]
+    required_by: date
+    required_claims: list[Claim] = []
+    recipe_names: list[str]
+    urgency: Literal["normal", "urgent"]
+    explanation: str
+
+
+class RecipeGapResponse(BaseModel):
+    gaps: list[RecipeGap]
+    usable_inventory_value: int
+    expired_or_unusable_inventory_value: int
+
+
+class StandingOrderObservation(BaseModel):
+    date: date
+    quantity: float = Field(ge=0)
+
+
+class StandingOrderDriftRequest(BaseModel):
+    product_intent: str = Field(min_length=1, max_length=160)
+    proposed_quantity: float = Field(ge=0)
+    unit: Literal["L", "kg", "pcs"]
+    history: list[StandingOrderObservation] = Field(min_length=3, max_length=104)
+    tolerance_pct: float = Field(default=0.2, ge=0.01, le=1.0)
+
+
+class StandingOrderDriftResponse(BaseModel):
+    product_intent: str
+    baseline_quantity: float
+    proposed_quantity: float
+    delta_pct: float
+    status: Literal["within_pattern", "review_required"]
+    explanation: str
