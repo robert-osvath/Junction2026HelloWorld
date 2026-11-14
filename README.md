@@ -8,6 +8,7 @@ brew install uv python@3.12      # if ~/.local isn't writable, uv uses brew's 3.
 cp .env.example .env             # add VALIO_API_KEY
 uv sync
 uv run scripts/download_data.py  # -> data/products.json, product_schema.json, delivery_reliability.csv, carbon_footprint.csv
+uv run python -m app.catalog.loader   # -> data/catalog.db (SQLite for now; ~1 s, 17,546 products)
 ```
 
 ## Run
