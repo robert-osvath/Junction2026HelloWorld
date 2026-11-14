@@ -6,7 +6,7 @@ from typing import Annotated, Any, Literal
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
-from contracts import OrderRequest, OffersRequest, SubstitutesRequest
+from contracts import Need, OrderRequest, OffersRequest, SubstitutesRequest
 from mcp_server.client import AimoAPI
 
 mcp = FastMCP("Trusted Trade Agents", instructions="Use these tools to source and place Aimo orders.")
@@ -40,6 +40,19 @@ async def get_offers(request: OffersRequest) -> list[dict[str, Any]]:
 async def place_order(request: OrderRequest) -> dict[str, Any]:
     """Create a simulated Aimo order."""
     return await _api().request("POST", "/orders", body=request.model_dump(mode="json"))
+
+
+@mcp.tool()
+async def order_from_need(
+    need: Need, mandate_id: str | None = None, product_hint: str | None = None,
+    simulate_out_of_stock: bool = False,
+) -> dict[str, Any]:
+    """Order by NEED: Aimo searches candidates, the jury picks the best one and the order is placed,
+    held for approval (pending_approval) or answered with substitutes (substitutes_proposed).
+    simulate_out_of_stock is an explicit demo switch that blocks every candidate."""
+    return await _api().request("POST", "/orders/from-need", body={
+        "mandate_id": mandate_id, "need": need.model_dump(mode="json"), "product_hint": product_hint,
+        "simulate_out_of_stock": simulate_out_of_stock})
 
 
 @mcp.tool()

@@ -266,13 +266,13 @@ async function searchBackendCatalog(query, requiredClaims = []) {
 
 async function createCatalogDraft({product_id, product_intent, quantity, unit, deliver_by, required_claims = [], exception_reason = ""}) {
   const rules = JSON.parse(localStorage.getItem("aimo-rules") || "{}");
-  if (!rules.policy_id) throw new Error("Set and save buyer policies before creating an order draft.");
   const response = await fetch("/experience/create-draft", {
     method: "POST",
     headers: {"content-type": "application/json"},
     body: JSON.stringify({
-      policy_id: rules.policy_id,
-      product_id,
+      policy_id: rules.policy_id || null,  // no saved policy: the backend applies the buyer's default
+      buyer_name: rules.buyer || null,
+      product_id: product_id || null,  // optional hint; the jury chooses the best product
       product_intent,
       quantity: Number(quantity),
       unit,
@@ -457,14 +457,8 @@ async function refreshOrder() {
 
 function agentOrderFacts(order) {
   const rules = JSON.parse(localStorage.getItem("aimo-rules") || "{}");
-  if (!rules.policy_id) {
-    return {
-      policy_required: true,
-      summary: "A buyer policy has not been saved. Before searching or drafting, ask whether nutrition or dietary requirements apply and whether allergen restrictions apply, then ask the buyer to save those choices in Purchasing rules.",
-    };
-  }
   if (!order) {
-    return {order_status: "none", summary: "No order has been drafted in this session yet. Ask what the buyer needs, call search_catalog, then create_order_draft."};
+    return {order_status: "none", summary: "No order has been drafted in this session yet. Ask what the buyer needs (product, quantity, unit, delivery date), then call create_order_draft; the jury chooses the product."};
   }
   const line = order.lines?.[0];
   return {
@@ -905,12 +899,6 @@ function handleOnboardingAnswer(transcript) {
 
 function startVimo({announce = true} = {}) {
   if (elevenStarting || elevenConversation) return;  // already connecting or live: a second start means a second voice
-  const saved = JSON.parse(localStorage.getItem("aimo-rules") || "{}");
-  if (!saved.policy_id) {
-    $("#rules-dialog").showModal();
-    setVimoState("Set your purchasing rules", "Vimo needs your limits and dietary rules before it drafts or approves any order.");
-    return;
-  }
   vimoEnabled = true;
   const alert = "Vimo is active. Tell me what your kitchen needs, or ask what needs attention.";
   setVimoState("Vimo is active", "Say “Hey Vimo” for an update, a question, or an approval decision.");
@@ -943,12 +931,13 @@ function startLegacyVimo(announce, alert) {
 }
 
 async function loadDecision() {
-  // only orders covered by this buyer's saved policy appear in this cockpit
+  // only orders covered by this buyer's policy (saved or default) appear in this cockpit
   try {
     const response = await fetch("/orders");
     const orders = response.ok ? await response.json() : [];
     const rules = JSON.parse(localStorage.getItem("aimo-rules") || "{}");
-    const mine = orders.filter((order) => order.mandate_id === rules.policy_id)
+    const mine = orders.filter((order) => rules.policy_id ? order.mandate_id === rules.policy_id
+        : order.mandate_id.startsWith("default-") || order.mandate_id === "mandate-vimo-live")
       .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
     myOrders = mine;
     renderMetrics();
@@ -1008,8 +997,7 @@ $("#rules-form").addEventListener("submit", async (event) => {
       body: JSON.stringify({
         buyer_name: rules.buyer, buyer_type: rules.buyer_type,
         auto_approve_limit: Number(rules.limit), budget: Number(rules.budget),
-        nutrition_choice: rules.nutrition_choice, required_claims: requiredClaims,
-        allergen_choice: rules.allergen_choice, banned_allergens: bannedAllergens,
+        required_claims: requiredClaims, banned_allergens: bannedAllergens,
         strict_allergens: Boolean(rules.strict_allergens), substitutes_allowed: Boolean(rules.substitutes),
       }),
     });
@@ -1120,11 +1108,11 @@ $("#close-suggestion").addEventListener("click", () => $("#suggestion-dialog").c
 $("#acknowledge-suggestion").addEventListener("click", () => $("#suggestion-dialog").close());
 
 const savedRules = localStorage.getItem("aimo-rules");
-if (savedRules && JSON.parse(savedRules).policy_id) {
+if (savedRules && JSON.parse(savedRules).buyer) {
   const rules = JSON.parse(savedRules);
   $("#policy-copy").textContent = `${rules.buyer}: orders up to €${rules.limit} can proceed automatically when all dietary and delivery rules are met.`;
 } else {
-  setVimoState("Vimo is ready when you are", "Select Talk to Vimo once, then answer four quick questions by voice.");
+  setVimoState("Vimo is ready when you are", "Select Talk to Vimo and say what you need. Default purchasing rules apply until you edit them.");
 }
 renderJury();
 renderTimeline();
