@@ -1,63 +1,22 @@
-"use client";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import { ago, api, eur, heldReason, LABEL, total, type Order, type Status } from "./api";
 
-const TABS = Object.keys(LABEL) as Status[];
-
-export default function Inbox() {
-  const router = useRouter();
-  const [tab, setTab] = useState<Status>("pending_approval");
-  const [orders, setOrders] = useState<Order[] | null>(null);
-  const [err, setErr] = useState("");
-
-  useEffect(() => {
-    let live = true;
-    const load = () => api<Order[]>("/orders")
-      .then((o) => live && (setOrders(o), setErr("")))
-      .catch((e) => live && (setOrders((p) => p ?? []), setErr(e.message)));
-    void load();
-    const t = setInterval(load, 10_000);
-    return () => { live = false; clearInterval(t); };
-  }, []);
-
-  const count = (s: Status) => (orders ?? []).filter((o) => o.status === s).length;
-  const rows = (orders ?? []).filter((o) => o.status === tab);
-
+export default function Home() {
   return (
     <>
-      <h1>Order approvals</h1>
-      <nav className="tabs" aria-label="Order status">
-        {TABS.map((t) => (
-          <button key={t} aria-current={t === tab} onClick={() => setTab(t)}>{LABEL[t]} ({count(t)})</button>
-        ))}
-      </nav>
-      {err && <p className="err">{err}</p>}
-      {orders === null ? <p>Loading...</p> : rows.length === 0 ? <p className="muted">No orders with status {LABEL[tab].toLowerCase()}.</p> : (
-        <table>
-          <thead>
-            <tr>
-              <th scope="col">Order</th><th scope="col">Buyer</th><th scope="col">Product</th><th scope="col">Quantity</th>
-              <th scope="col" className="num">Total</th><th scope="col">Reason held</th><th scope="col">Waiting since</th><th scope="col">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((o) => (
-              <tr key={o.id} className="click" onClick={() => router.push(`/orders/${o.id}`)}>
-                <td><Link href={`/orders/${o.id}`} onClick={(e) => e.stopPropagation()}>{o.id.replace("order-", "").slice(0, 8)}</Link></td>
-                <td>{o.mandate_id}</td>
-                <td>{o.lines[0]?.name}{o.lines.length > 1 && ` +${o.lines.length - 1} more`}</td>
-                <td>{o.lines[0] && `${o.lines[0].units_needed} x ${o.lines[0].sales_unit}`}</td>
-                <td className="num">{eur(total(o))}</td>
-                <td>{heldReason(o)}</td>
-                <td>{ago(o.created_at)}</td>
-                <td className={`s-${o.status}`}>{LABEL[o.status]}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      <section className="hero">
+        <p className="eyebrow">Open ordering interface</p>
+        <h1>Let any buyer agent order from Aimo, <em>safely</em>.</h1>
+        <p className="lede">
+          External buyer agents place orders with Aimo. A jury of code gates and models decides, humans approve
+          the rest, and every step lands in a verified audit trail.
+        </p>
+      </section>
+      <div className="cards">
+        <a className="card" href="/vimo/index.html"><h2>Order as a buyer</h2><p>Ask Vimo for what you need and watch the jury decide.</p></a>
+        <Link className="card" href="/approvals"><h2>Approve as Aimo</h2><p>Review held orders, approve or reject, and check the audit log.</p></Link>
+        <a className="card" href="/game/index.html"><h2>Watch the pitch</h2><p>The Milk Run: the story of one order, end to end.</p></a>
+      </div>
+      <p className="muted">Chrome/Edge recommended · microphone optional, text works too</p>
     </>
   );
 }

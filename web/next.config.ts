@@ -2,20 +2,23 @@ import type { NextConfig } from "next";
 
 const API = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(/\/$/, "");
 
-// The Milk Run game (public/game) calls the API with relative paths, as when FastAPI serves it.
-// Proxy exactly those paths to the API so it runs in LIVE mode here too (server-side, so no CORS).
-// Only the exact "/orders" is proxied: "/orders/[id]" is the inbox's own page.
-const GAME_API_PATHS = ["/health", "/catalog/search", "/offers", "/jury/evaluate", "/orders", "/audit", "/audit/verify"];
+// Browser code (inbox, cockpit /vimo, game) calls the API with same-origin relative paths, so the
+// HttpOnly aimo_demo cookie lives on the web domain. Proxy exactly those paths to the API server-side.
+// "/orders" and "/orders/:path*" are API-only: the inbox pages live under /approvals.
+const API_PATHS = ["/auth/:path*", "/experience/:path*", "/orders", "/orders/:path*", "/catalog/search", "/health", "/offers", "/jury/evaluate", "/substitutes", "/audit", "/audit/verify"];
 
 const nextConfig: NextConfig = {
   cacheComponents: true,
   partialPrefetching: true,
   async redirects() {
-    // the game loads audio/... relative to its own URL, so it must be opened as /game/index.html
-    return [{ source: "/game", destination: "/game/index.html", permanent: false }];
+    // the game and cockpit load audio/... relative to its own URL, so it must be opened as /game/index.html
+    return [
+      { source: "/game", destination: "/game/index.html", permanent: false },
+      { source: "/vimo", destination: "/vimo/index.html", permanent: false },
+    ];
   },
   async rewrites() {
-    return GAME_API_PATHS.map((p) => ({ source: p, destination: `${API}${p}` }));
+    return API_PATHS.map((p) => ({ source: p, destination: `${API}${p}` }));
   },
 };
 
