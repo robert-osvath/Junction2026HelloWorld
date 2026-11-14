@@ -178,7 +178,7 @@
             "name": "order_event_plan",
             "description": "Order every sourceable line of the current event plan one after another; each order is re-checked by the jury and placed or held for approval. Opens a summary of all orders.",
             "expects_response": true,
-            "response_timeout_secs": 180,
+            "response_timeout_secs": 120,
             "parameters": {"type": "object", "properties": {}, "required": []}
           }
         ]

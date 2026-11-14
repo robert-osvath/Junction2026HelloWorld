@@ -74,7 +74,15 @@ def _norm(x):
 
 
 def live_tools(headers: dict, tool_ids: list[str]) -> dict[str, tuple[str, dict]]:
+    """Tools attached to the agent, plus same-named workspace tools left unattached by an interrupted
+    publish (reused instead of creating duplicates)."""
     tools = {}
+    listing = httpx.get(TOOLS_BASE, headers=headers, timeout=30)
+    listing.raise_for_status()
+    for item in listing.json().get("tools", []):
+        cfg = item.get("tool_config") or {}
+        if cfg.get("name"):
+            tools.setdefault(cfg["name"], (item["id"], cfg))
     for tool_id in tool_ids:
         r = httpx.get(f"{TOOLS_BASE}/{tool_id}", headers=headers, timeout=30)
         r.raise_for_status()
@@ -113,13 +121,16 @@ def main() -> None:
     live_agent = httpx.get(f"{API_BASE}/{agent_id}", params={"branch_id": branch_id}, headers=headers, timeout=30)
     live_agent.raise_for_status()
     live_ids = live_agent.json()["conversation_config"]["agent"]["prompt"].get("tool_ids") or []
-    tool_plan = plan_tools(config["conversation_config"]["agent"]["prompt"]["tools"], live_tools(headers, live_ids))
-    dropped = sorted(set(live_tools(headers, live_ids)) - {t["name"] for _, t, _ in tool_plan})
+    live = live_tools(headers, live_ids)
+    tool_plan = plan_tools(config["conversation_config"]["agent"]["prompt"]["tools"], live)
+    tracked = {t["name"] for _, t, _ in tool_plan}
+    dropped = sorted(name for name, (tool_id, _) in live.items() if tool_id in live_ids and name not in tracked)
 
     if not args.apply:
         print(f"Dry run: would update ElevenLabs agent {agent_id} branch {branch_id}")
         for action, tool, tool_id in tool_plan:
-            print(f"  tool {tool['name']}: {action}{f' ({tool_id})' if tool_id else ''}")
+            attached = "" if tool_id is None or tool_id in live_ids else ", unattached workspace tool"
+            print(f"  tool {tool['name']}: {action}{f' ({tool_id}{attached})' if tool_id else ''}")
         if dropped:
             print(f"  tools detached (not in the tracked config): {', '.join(dropped)}")
         print(json.dumps(patch, indent=2, sort_keys=True))
