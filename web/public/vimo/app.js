@@ -342,16 +342,19 @@ function renderOrder(order) {
     : sub ? `${sub.units_needed} × ${sub.sales_unit} · ${eur(sub.total_eur)} · available ${sub.available_date}` : heldReason(order);
   const pending = order.status === "pending_approval";
   const subs = order.status === "substitutes_proposed" ? (order.substitutes || []) : [];
-  $("#approval-banner").hidden = !pending && !subs.length;
+  $("#approval-banner").hidden = !pending && order.status !== "substitutes_proposed";
   if (pending) {
     $("#approval-title").textContent = `Approve ${line ? `${line.units_needed} × ${line.name}` : "this order"} for ${eur(line?.total_eur || 0)}?`;
     $("#approval-detail").textContent = heldReason(order) || "The jury asked for a human decision.";
+  } else if (order.status === "substitutes_proposed" && !subs.length) {
+    $("#approval-title").textContent = `${line?.name || "This product"} did not pass the jury, and no substitute qualified.`;
+    $("#approval-detail").textContent = "See the jury verdicts in the decision panel. Reject it, or ask Vimo for a different product or date.";
   } else if (subs.length) {
     $("#approval-title").textContent = `${line?.name || "This product"} did not pass the jury. Pick a substitute below.`;
     $("#approval-detail").textContent = "See the jury verdicts in the decision panel. Ordering a substitute starts a new, re-checked order.";
   }
   for (const id of ["#approve-order", "#voice-decision"]) { $(id).disabled = !pending; $(id).hidden = !pending; }
-  $("#reject-order").disabled = !pending && !subs.length;
+  $("#reject-order").disabled = !pending && order.status !== "substitutes_proposed";
   renderSubstitutes(order, subs);
 }
 
@@ -584,6 +587,13 @@ async function connectElevenLive() {
     onConnect: () => {
       setListening();
       startBackendDecisionPolling();
+      // the agent's model does not know today's date and resolves "by Monday" in its training year
+      const today = new Date();
+      const iso = today.toLocaleDateString("en-CA", {timeZone: "Europe/Helsinki"});
+      const weekday = today.toLocaleDateString("en-GB", {weekday: "long", timeZone: "Europe/Helsinki"});
+      try {
+        elevenConversation?.sendContextualUpdate(`Today is ${weekday} ${iso} (Helsinki). Resolve relative dates such as "Monday" or "tomorrow" from today; deliver_by must be today or later, in YYYY-MM-DD.`);
+      } catch (_) { /* the backend also rejects past dates with today's date in the message */ }
     },
     onMessage: (event) => {
       const who = event?.source || event?.role;

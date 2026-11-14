@@ -10,6 +10,7 @@ import logging
 import os
 import re
 from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from typing import Literal
 
 import httpx
@@ -28,6 +29,7 @@ from app.orders.mandates import MANDATES
 from app.orders.store import get_order_store
 from contracts import Need, Offer, OffersRequest, Order, OrderRequest
 
+HELSINKI = ZoneInfo("Europe/Helsinki")  # buyers and Aimo's order cut-offs are in Finnish time
 router = APIRouter(prefix="/experience", tags=["buyer experience"])
 logger = logging.getLogger(__name__)
 
@@ -366,6 +368,12 @@ async def create_draft(request: CreateDraftRequest) -> Order:
     feeds immediately before deterministic jury and policy evaluation.
     """
     # GS1 allergen codes (AM milk, AW gluten, ...): a free-text "milk" would match nothing and silently ban nothing
+    today = datetime.now(HELSINKI).date()
+    if request.deliver_by < today:
+        # LLM agents often resolve "by Monday" with their training year; say so, so the agent can retry
+        raise HTTPException(status_code=422, detail=(
+            f"Delivery date {request.deliver_by.isoformat()} is in the past. Today is "
+            f"{today.strftime('%A')} {today.isoformat()}: recompute the date from today and try again."))
     unknown = [code for code in request.banned_allergens if not re.fullmatch(r"[A-Z]{2}", code)]
     if unknown:
         raise HTTPException(status_code=422, detail=(
