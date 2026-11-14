@@ -49,3 +49,8 @@ def test_orders_and_audit():
 
 def test_bad_request_rejected():
     assert c.post("/offers", json={"need": F["need"], "product_ids": [], "delivery_date": "2026-11-16"}).status_code == 422
+
+
+def test_cors_allows_web_origin():
+    r = c.get("/health", headers={"Origin": "http://localhost:3000"})
+    assert r.headers["access-control-allow-origin"] == "http://localhost:3000"
