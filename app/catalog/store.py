@@ -123,3 +123,68 @@ def replace_catalog(conn: sqlite3.Connection, products: list[dict],
         conn.executemany("INSERT INTO product_labels VALUES (?, ?)", labels)
         conn.executemany("INSERT INTO product_units VALUES (?, ?, ?)", units)
         conn.executemany("INSERT INTO substitutions VALUES (?, ?)", substitutions)
+
+
+def search_products(
+    conn: sqlite3.Connection,
+    *,
+    query: str = "",
+    claims: list[str] | None = None,
+    excluded_allergens: list[str] | None = None,
+    category: str = "",
+    limit: int = 20,
+) -> list[dict]:
+    """Search normalized catalog rows and return the fields exposed by the API.
+
+    Product metadata is always read from the imported Valio Aimo dataset. Price
+    and availability deliberately remain in the offer adapter because they are
+    separate synthetic feeds in this challenge.
+    """
+    claims = [value for value in (claims or []) if value]
+    excluded_allergens = [value for value in (excluded_allergens or []) if value]
+    where: list[str] = []
+    values: list[object] = []
+    terms = [term.strip().lower() for term in query.split() if term.strip()]
+    for term in terms:
+        like = f"%{term}%"
+        where.append("(lower(coalesce(p.name_fi, '')) LIKE ? OR lower(coalesce(p.name_en, '')) LIKE ? OR lower(coalesce(p.brand, '')) LIKE ? OR p.id = ?)")
+        values.extend((like, like, like, term))
+    if category:
+        where.append("p.category = ?")
+        values.append(category)
+    for claim in claims:
+        where.append("EXISTS (SELECT 1 FROM product_claims c WHERE c.product_id = p.id AND c.claim = ?)")
+        values.append(claim)
+    for allergen in excluded_allergens:
+        where.append("NOT EXISTS (SELECT 1 FROM product_allergens a WHERE a.product_id = p.id AND a.code = ? AND a.level IN ('CONTAINS', 'MAY_CONTAIN'))")
+        values.append(allergen)
+    sql = "SELECT p.* FROM products p"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY lower(coalesce(p.name_en, p.name_fi)), p.id LIMIT ?"
+    values.append(max(1, min(limit, 100)))
+    rows = conn.execute(sql, values).fetchall()
+    result = []
+    for row in rows:
+        product_id = row["id"]
+        result.append({
+            "product_id": product_id,
+            "name": row["name_en"] or row["name_fi"] or product_id,
+            "vendor_name": row["vendor_name"],
+            "sales_unit": row["sales_unit"],
+            "category": row["category"],
+            "claims": [item[0] for item in conn.execute("SELECT claim FROM product_claims WHERE product_id = ? ORDER BY claim", (product_id,))],
+            "allergens_contains": [item[0] for item in conn.execute("SELECT code FROM product_allergens WHERE product_id = ? AND level = 'CONTAINS' ORDER BY code", (product_id,))],
+            "allergens_may_contain": [item[0] for item in conn.execute("SELECT code FROM product_allergens WHERE product_id = ? AND level = 'MAY_CONTAIN' ORDER BY code", (product_id,))],
+            "allergen_data": bool(row["has_allergen_data"]),
+        })
+    return result
+
+
+def products_by_id(conn: sqlite3.Connection, product_ids: list[str]) -> dict[str, dict]:
+    """Return normalized product metadata for a shortlist, keyed by product id."""
+    if not product_ids:
+        return {}
+    marks = ", ".join("?" for _ in product_ids)
+    rows = conn.execute(f"SELECT * FROM products WHERE id IN ({marks})", product_ids).fetchall()
+    return {row["id"]: dict(row) for row in rows}

@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#123b2a" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="stylesheet" href="/styles.css" />
+    <title>Aimo Purchase Control</title>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="#">VIMO <span>BY AIMO</span></a>
+        <div class="live"><i></i> Vimo is monitoring</div>
+        <button class="voice-toggle" id="voice-toggle" aria-pressed="true">Voice updates on</button>
+        <button class="avatar" aria-label="Buyer profile">HM</button>
+      </header>
+
+      <main>
+        <section class="hero">
+          <div>
+            <p class="eyebrow">YOUR VOICE PURCHASING AGENT</p>
+            <h1>Just tell Vimo<br><em>what your kitchen needs.</em></h1>
+            <p class="lede" id="policy-copy">Vimo watches your inventory, checks every option and calls you only when a human decision is needed.</p>
+          </div>
+          <button class="primary" id="start-vimo">Talk to Vimo <span>●</span></button>
+        </section>
+
+        <section class="vimo-call" aria-live="polite">
+          <div class="vimo-orb" id="vimo-orb"><i></i><i></i><i></i></div>
+          <div><p class="eyebrow">VIMO VOICE LINE</p><h2 id="vimo-title">Vimo is ready when you are</h2><p id="vimo-status">Start once to allow microphone access. After that, Vimo can guide setup and read important updates aloud.</p><p class="voice-presence" id="voice-presence" aria-live="polite">● Microphone standby</p></div>
+          <button class="secondary" id="open-rules">Type rules instead</button>
+        </section>
+
+        <section class="approval-banner" id="approval-banner" hidden>
+          <div class="approval-symbol">!</div>
+          <div>
+            <p class="eyebrow">HUMAN APPROVAL REQUIRED</p>
+            <h2 id="approval-title">Order needs your decision</h2>
+            <p id="approval-detail"></p>
+          </div>
+          <div class="approval-actions">
+            <button class="secondary" id="voice-decision">Use voice</button>
+            <button class="secondary" id="reject-order">Reject</button>
+            <button class="primary" id="approve-order">Approve order</button>
+          </div>
+        </section>
+
+        <section class="metrics" aria-label="Today at a glance">
+          <article><p>Active decisions</p><strong id="active-count">03</strong><span>across 2 locations</span></article>
+          <article><p>Within autonomy</p><strong class="good">€1,248</strong><span>ready to place</span></article>
+          <article><p>Awaiting approval</p><strong class="warn">01</strong><span>policy exception</span></article>
+          <article><p>Decision confidence</p><strong>94%</strong><span>from verified evidence</span></article>
+        </section>
+
+        <section class="grid">
+          <article class="panel decision-panel">
+            <div class="panel-heading">
+              <div><p class="eyebrow">CURRENT DECISION</p><h2>1,000 L lactose-free milk</h2></div>
+              <span class="status">Jury complete</span>
+            </div>
+            <p class="request">“Find a compliant option for Monday delivery, within our approved supplier policy.”</p>
+            <div class="jury" id="jury-list"></div>
+            <div class="recommendation">
+              <div><p class="eyebrow">RECOMMENDATION</p><h3>Valio Eila® 10 L Novobox</h3><p>50 cases · €1,565.50 · Delivery Monday</p></div>
+              <button class="text-button" id="speak-update">Hear update ↗</button>
+            </div>
+          </article>
+
+          <article class="panel activity-panel">
+            <div class="panel-heading"><div><p class="eyebrow">DECISION RECORD</p><h2>Today’s activity</h2></div><button class="text-button" id="end-day">End-of-day summary ↗</button></div>
+            <ol class="timeline" id="timeline"></ol>
+          </article>
+        </section>
+
+        <section class="panel inventory-panel">
+          <div class="panel-heading"><div><p class="eyebrow">INVENTORY WATCH</p><h2>What needs attention next</h2></div><span class="muted">Updated 2 min ago</span></div>
+          <div class="inventory-row"><span class="dot urgent"></span><div><strong>Lactose-free milk</strong><p>Projected below par level at Hotel North</p></div><strong>2 days</strong><button class="secondary">Review</button></div>
+          <div class="inventory-row"><span class="dot"></span><div><strong>Oat drink barista</strong><p>Standing order is 12% above usual volume</p></div><strong>Review</strong><button class="secondary">Inspect</button></div>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="rules-dialog">
+      <form method="dialog" id="rules-form">
+        <div class="dialog-heading"><div><p class="eyebrow">FIRST-TIME SETUP</p><h2>Set your purchasing rules</h2></div><button class="close" value="cancel" aria-label="Close">×</button></div>
+        <p class="dialog-copy">The agent will act only inside these limits. You can update them at any time.</p>
+        <div class="form-grid">
+          <label>Buyer / location<input name="buyer" required value="Hotel North" /></label>
+          <label>Auto-approve limit (€)<input name="limit" type="number" min="0" value="500" required /></label>
+          <label>Order budget (€)<input name="budget" type="number" min="0" value="2000" required /></label>
+          <label>Required claim<input name="claim" value="Lactose-free" /></label>
+        </div>
+        <label class="check"><input name="substitutes" type="checkbox" checked /> Allow substitutions that preserve dietary and allergen rules</label>
+        <div class="dialog-actions"><button class="secondary" value="cancel">Cancel</button><button class="primary" value="default">Save rules and continue</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="summary-dialog">
+      <div class="dialog-heading"><div><p class="eyebrow">END-OF-DAY BRIEFING</p><h2>Today, in plain language</h2></div><button class="close" id="close-summary" aria-label="Close">×</button></div>
+      <p class="summary-copy" id="summary-copy"></p>
+      <button class="primary" id="speak-summary">Read this aloud</button>
+    </dialog>
+    <dialog id="voice-dialog">
+      <div class="dialog-heading"><div><p class="eyebrow">VOICE DECISION</p><h2>Confirm what the agent heard</h2></div><button class="close" id="close-voice" aria-label="Close">×</button></div>
+      <p class="dialog-copy" id="voice-status">Listening for “approve this order” or “reject this order”…</p>
+      <p class="voice-transcript" id="voice-transcript"></p>
+      <dl class="decision-details" id="decision-details"></dl>
+      <div class="dialog-actions"><button class="secondary" id="listen-again">Listen again</button><button class="primary" id="confirm-voice" disabled>Confirm decision</button></div>
+    </dialog>
+    <dialog id="suggestion-dialog">
+      <div class="dialog-heading"><div><p class="eyebrow">VIMO SUGGESTION</p><h2>Review before acting</h2></div><button class="close" id="close-suggestion" aria-label="Close">×</button></div>
+      <p class="dialog-copy" id="suggestion-copy"></p>
+      <div class="dialog-actions"><button class="primary" id="acknowledge-suggestion">Got it</button></div>
+    </dialog>
+    <script src="/app.js"></script>
+  </body>
+</html>
