@@ -145,6 +145,8 @@ def rank_substitutes_detailed(req: SubstitutesRequest, top_k: int = 3) -> list[R
     """Rank candidate substitutes and screen each one back through the Jury."""
     if not req.mandate.substitutes_allowed:
         return []
+    if not (math.isfinite(req.need.quantity) and req.need.quantity > 0) or top_k <= 0:
+        return []
 
     records = get_candidate_records()
     catalog_map = resolve_catalog_items(list(records.keys()) + [req.offer.product_id])

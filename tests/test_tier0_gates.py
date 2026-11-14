@@ -319,3 +319,45 @@ def test_tier0_gates_table_driven(
     assert expected_reason_substr in joined_reasons, (
         f"{case_id}: expected substring '{expected_reason_substr}' in '{joined_reasons}'"
     )
+
+
+def test_adversarial_naive_vs_aware_closing_time() -> None:
+    """Comparing naive closing_time with timezone-aware now (or vice versa) must not raise TypeError."""
+    offer_naive = _offer(closing_time="2026-11-14T08:00:00")
+    dec, reasons = check_closing_time(offer_naive, now=datetime.fromisoformat("2026-11-14T10:00:00+00:00"))
+    assert dec == "reject"
+    assert "past cut-off" in " ".join(reasons)
+
+
+def test_adversarial_multiline_order_cost_aggregation() -> None:
+    """Two lines of 800 EUR each (each <= 1,000 EUR auto-approve) total 1,600 EUR -> must escalate both tier0 and cost."""
+    from app.jury.jurors import evaluate_with_gemini_decision
+
+    mandate = _mandate(auto_approve_limit_eur=1000.0, budget_per_order_eur=2500.0)
+    need = _need()
+    line1 = _offer(product_id="463038", units_needed=20, unit_price_eur=40.0, total_eur=800.0)
+    line2 = _offer(product_id="463010", units_needed=20, unit_price_eur=40.0, total_eur=800.0)
+    cat1 = _catalog(product_id="463038")
+    cat2 = _catalog(product_id="463010")
+
+    metrics = evaluate_with_gemini_decision(
+        mandate,
+        need,
+        [line1, line2],
+        catalog_items={"463038": cat1, "463010": cat2},
+        live_api=False,
+    )
+    assert metrics.result.decision == "human_approval"
+    verdicts_by_juror = {v.juror: v for v in metrics.result.verdicts}
+    assert verdicts_by_juror["tier0"].decision == "escalate"
+    assert verdicts_by_juror["cost"].decision == "escalate"
+
+
+def test_adversarial_empty_offers_in_jurors() -> None:
+    """Empty offers list in evaluate_with_gemini_decision must not raise IndexError."""
+    from app.jury.jurors import evaluate_with_gemini_decision
+
+    metrics = evaluate_with_gemini_decision(_mandate(), _need(), [], live_api=False)
+    assert metrics.result.decision == "reject"
+    assert metrics.result.chosen_product_id is None
+

@@ -395,11 +395,52 @@ def _build_catalog_index() -> dict[str, CatalogItem]:
 
 
 def resolve_catalog_items(product_ids: list[str]) -> dict[str, CatalogItem]:
-    """Return a mapping of `product_id -> CatalogItem` for all known products."""
+    """Return a mapping of `product_id -> CatalogItem` for all known products.
+
+    Checks the in-memory curated/fixture index first, then falls back to P1's
+    SQLite catalog (`app.catalog.store`) when `data/catalog.db` is present.
+    """
     global _CATALOG_INDEX
     if _CATALOG_INDEX is None:
         _CATALOG_INDEX = _build_catalog_index()
-    return {pid: _CATALOG_INDEX[pid] for pid in product_ids if pid in _CATALOG_INDEX}
+
+    result: dict[str, CatalogItem] = {}
+    missing: list[str] = []
+    for pid in product_ids:
+        if pid in _CATALOG_INDEX:
+            result[pid] = _CATALOG_INDEX[pid]
+        else:
+            missing.append(pid)
+
+    if missing:
+        try:
+            from app.catalog import store
+
+            db_file = store.db_path()
+            if db_file.exists():
+                conn = store.connect(db_file)
+                try:
+                    rows = store.offer_rows(conn, missing)
+                    details = store.item_details(conn, list(rows.keys()))
+                    for pid, row in rows.items():
+                        det = details.get(pid, {"claims": [], "contains": [], "may": []})
+                        result[pid] = CatalogItem(
+                            product_id=pid,
+                            name=row.get("name_en") or row.get("name_fi") or pid,
+                            vendor_name=row.get("vendor_name"),
+                            sales_unit=row.get("sales_unit") or "ST",
+                            category=row.get("category"),
+                            claims=det["claims"],
+                            allergens_contains=det["contains"],
+                            allergens_may_contain=det["may"],
+                            allergen_data=bool(row.get("has_allergen_data")),
+                        )
+                finally:
+                    conn.close()
+        except Exception:
+            pass
+
+    return result
 
 
 def get_candidate_records() -> dict[str, CandidateRecord]:

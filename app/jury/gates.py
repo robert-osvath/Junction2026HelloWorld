@@ -1,5 +1,6 @@
 """T5: Tier 0 deterministic mandate and rule gates (pure functions, zero AI)."""
-from datetime import datetime
+from datetime import datetime, timezone
+import math
 
 from contracts import CatalogItem, Mandate, Need, Offer, Verdict
 
@@ -12,8 +13,16 @@ def _merge_decisions(decisions: list[str]) -> str:
     return max(decisions, key=lambda d: DECISION_PRIORITY[d])
 
 
+def _to_utc(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 def check_budget(mandate: Mandate, total_eur: float) -> tuple[str, list[str]]:
     """Check order total against hard budget and auto-approve threshold."""
+    if not math.isfinite(total_eur) or total_eur < 0:
+        return "reject", [f"Invalid order total: {total_eur}"]
     if total_eur > mandate.budget_per_order_eur:
         return (
             "reject",
@@ -54,7 +63,7 @@ def check_closing_time(offer: Offer, now: datetime | None = None) -> tuple[str, 
     """Verify the order is placed before the delivery route's closingTime cut-off."""
     if offer.closing_time is None or now is None:
         return "approve", []
-    if now > offer.closing_time:
+    if _to_utc(now) > _to_utc(offer.closing_time):
         return (
             "reject",
             [f"Order time {now.isoformat()} is past cut-off {offer.closing_time.isoformat()}"],
@@ -119,6 +128,14 @@ def check_allergens(
 
 def check_stock_evidence(offer: Offer) -> tuple[str, list[str]]:
     """Check stock evidence and arithmetic consistency."""
+    if (
+        offer.units_needed <= 0
+        or not math.isfinite(offer.unit_price_eur)
+        or not math.isfinite(offer.total_eur)
+        or offer.unit_price_eur < 0
+        or offer.total_eur < 0
+    ):
+        return "reject", [f"Invalid line units or price on product {offer.product_id}"]
     if abs(offer.units_needed * offer.unit_price_eur - offer.total_eur) > 0.05:
         return (
             "reject",

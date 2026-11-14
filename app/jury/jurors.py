@@ -18,6 +18,7 @@ from datetime import datetime
 from typing import Literal
 
 from app.jury.gates import (
+    _merge_decisions,
     check_allergens,
     check_budget,
     check_claims,
@@ -57,7 +58,9 @@ def aggregate_verdicts(
     verdicts: list[Verdict],
 ) -> JuryResult:
     """Aggregate individual juror verdicts into a final JuryResult."""
-    chosen_id = offers[0].product_id if offers else None
+    if not offers:
+        return JuryResult(verdicts=verdicts, decision="reject", chosen_product_id=None)
+    chosen_id = offers[0].product_id
     decisions = [v.decision for v in verdicts]
 
     # Budget breach is a hard reject (cannot be fixed by a SKU substitute alone if over mandate budget,
@@ -206,6 +209,62 @@ def _heuristic_fuzzy_checks(
     )
 
 
+def _evaluate_lines_heuristic(
+    mandate: Mandate,
+    need: Need,
+    offers: list[Offer],
+    catalog_items: dict[str, CatalogItem] | None,
+    model_name: str,
+) -> tuple[Verdict, Verdict, Verdict]:
+    if not offers:
+        return (
+            Verdict(juror="spec", decision="reject", confidence=1.0, reasons=["No offers provided"], model=model_name),
+            Verdict(juror="delivery", decision="reject", confidence=1.0, reasons=["No offers provided"], model=model_name),
+            Verdict(juror="cost", decision="reject", confidence=1.0, reasons=["No offers provided"], model=model_name),
+        )
+
+    spec_verdicts: list[Verdict] = []
+    deliv_verdicts: list[Verdict] = []
+    cost_verdicts: list[Verdict] = []
+    for o in offers:
+        item = (catalog_items or {}).get(o.product_id)
+        vs, vd, vc = _heuristic_fuzzy_checks(mandate, need, o, item, model_name)
+        spec_verdicts.append(vs)
+        deliv_verdicts.append(vd)
+        cost_verdicts.append(vc)
+
+    total_eur = round(sum(o.total_eur for o in offers), 2)
+    b_dec, b_reasons = check_budget(mandate, total_eur)
+    cost_decisions = [b_dec, *[v.decision for v in cost_verdicts]]
+    extra_cost_reasons = [
+        r for v in cost_verdicts for r in v.reasons if "Comparison price" in r
+    ]
+
+    return (
+        Verdict(
+            juror="spec",
+            decision=_merge_decisions([v.decision for v in spec_verdicts]),
+            confidence=min(v.confidence for v in spec_verdicts),
+            reasons=list(dict.fromkeys(r for v in spec_verdicts for r in v.reasons)),
+            model=model_name,
+        ),
+        Verdict(
+            juror="delivery",
+            decision=_merge_decisions([v.decision for v in deliv_verdicts]),
+            confidence=min(v.confidence for v in deliv_verdicts),
+            reasons=list(dict.fromkeys(r for v in deliv_verdicts for r in v.reasons)),
+            model=model_name,
+        ),
+        Verdict(
+            juror="cost",
+            decision=_merge_decisions(cost_decisions),
+            confidence=min(v.confidence for v in cost_verdicts),
+            reasons=list(dict.fromkeys([*b_reasons, *extra_cost_reasons])),
+            model=model_name,
+        ),
+    )
+
+
 def evaluate_with_gemini_decision(
     mandate: Mandate,
     need: Need,
@@ -221,9 +280,7 @@ def evaluate_with_gemini_decision(
     prompt_text = _format_case_input(mandate, need, offers, catalog_items)
     est_input_tokens = max(120, len(prompt_text) // 4)
 
-    offer = offers[0]
-    item = (catalog_items or {}).get(offer.product_id)
-    h_spec, h_deliv, h_cost = _heuristic_fuzzy_checks(mandate, need, offer, item, model_name)
+    h_spec, h_deliv, h_cost = _evaluate_lines_heuristic(mandate, need, offers, catalog_items, model_name)
 
     api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     if live_api and api_key:
@@ -338,9 +395,7 @@ def evaluate_with_generative_llm(
     est_input_tokens = max(180, len(prompt_text) // 4 + 80)
     est_output_tokens = 145
 
-    offer = offers[0]
-    item = (catalog_items or {}).get(offer.product_id)
-    h_spec, h_deliv, h_cost = _heuristic_fuzzy_checks(mandate, need, offer, item, model_name)
+    h_spec, h_deliv, h_cost = _evaluate_lines_heuristic(mandate, need, offers, catalog_items, model_name)
 
     if live_api and model_name.startswith("gemini"):
         api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
