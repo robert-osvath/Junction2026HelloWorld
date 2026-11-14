@@ -75,3 +75,32 @@ def test_remaining_reasons_mirror_t4(monkeypatch, tmp_path):
     with experience.catalog_store.connect() as conn:
         conn.execute("DELETE FROM product_units WHERE product_id = '463038'")
     assert "no known number of pieces" in explain(ok_price, None, unit="pcs")
+
+
+def test_create_draft_binds_buyer_rules_to_the_mandate(fake_client):
+    from app.orders.mandates import MANDATES
+    TestClient(app).post("/experience/create-draft", json={
+        "buyer_name": "My kitchen", "auto_approve_limit": 300, "budget": 900,
+        "product_id": "460000", "product_intent": "potato salad", "quantity": 10, "unit": "L",
+        "deliver_by": D.isoformat(), "banned_allergens": ["AM", "AW"], "strict_allergens": True,
+        "substitutes_allowed": False, "exception_reason": "event on Monday",
+    })  # 422 (unit mismatch) is fine: the mandate is bound before the offer is built
+    m = MANDATES["mandate-vimo-live"]
+    assert (m.buyer_name, m.auto_approve_limit_eur, m.budget_per_order_eur) == ("My kitchen", 300, 900)
+    assert m.banned_allergens == ["AM", "AW"] and m.strict_allergens is True and m.substitutes_allowed is False
+
+
+def test_agent_state_only_reports_cockpit_orders():
+    from app.orders.store import get_order_store
+    state = experience.backend_agent_state()
+    assert state.order_id == "not-created" or any(
+        o.id == state.order_id and o.mandate_id == "mandate-vimo-live" for o in get_order_store().list())
+
+
+def test_create_draft_rejects_free_text_allergens(fake_client):
+    r = TestClient(app).post("/experience/create-draft", json={
+        "buyer_name": "My kitchen", "auto_approve_limit": 300, "budget": 900,
+        "product_id": "463038", "product_intent": "milk", "quantity": 10, "unit": "L",
+        "deliver_by": D.isoformat(), "banned_allergens": ["AM", "gluten"],
+    })
+    assert r.status_code == 422 and r.json()["detail"].startswith("Unknown allergen code(s): gluten")

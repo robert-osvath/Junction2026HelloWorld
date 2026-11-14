@@ -264,13 +264,17 @@ async function searchBackendCatalog(query, requiredClaims = []) {
   }));
 }
 
-async function createCatalogDraft({product_id, product_intent, quantity, unit, deliver_by, required_claims = []}) {
+async function createCatalogDraft({product_id, product_intent, quantity, unit, deliver_by, required_claims = [], exception_reason = ""}) {
   const rules = JSON.parse(localStorage.getItem("aimo-rules") || "{}");
+  const policyClaims = String(rules.claim || "").split(",").map((claim) => claim.trim()).filter(Boolean).map((claim) => {
+    const normalized = claim.toUpperCase().replace(/[ -]+/g, "_");
+    return normalized === "LACTOSE_FREE" ? "FREE_FROM_LACTOSE" : normalized;
+  });
   const response = await fetch("/experience/create-draft", {
     method: "POST",
     headers: {"content-type": "application/json"},
     body: JSON.stringify({
-      buyer_name: rules.buyer || "Hotel North",
+      buyer_name: rules.buyer || "My kitchen",
       auto_approve_limit: Number(rules.limit || 500),
       budget: Number(rules.budget || 2000),
       product_id,
@@ -278,7 +282,11 @@ async function createCatalogDraft({product_id, product_intent, quantity, unit, d
       quantity: Number(quantity),
       unit,
       deliver_by,
-      required_claims,
+      required_claims: required_claims.length ? required_claims : policyClaims,
+      banned_allergens: String(rules.allergens || "").split(",").map((value) => value.trim().toUpperCase()).filter(Boolean),
+      strict_allergens: Boolean(rules.strict_allergens),
+      substitutes_allowed: Boolean(rules.substitutes),
+      exception_reason: exception_reason || null,
     }),
   });
   if (!response.ok) {
@@ -350,6 +358,7 @@ function renderOrder(order) {
 let myOrders = [];
 
 function renderMetrics() {
+  renderOrderWatch();
   // live numbers for this cockpit's orders (mandate-vimo-live), never placeholders
   const placed = myOrders.filter((o) => o.status === "placed");
   const sum = (o) => (o.lines || []).reduce((t, l) => t + l.total_eur, 0);
@@ -363,6 +372,31 @@ function renderMetrics() {
 function rememberOrder(order) {
   myOrders = [order, ...myOrders.filter((o) => o.id !== order.id)];
   renderMetrics();
+}
+
+function renderOrderWatch() {
+  const watch = $("#order-watch");
+  if (!myOrders.length) {
+    watch.replaceChildren(el("p", "muted", "No orders yet. Drafts appear here; select one to work on it."));
+    return;
+  }
+  watch.replaceChildren(...myOrders.slice(0, 6).map((order) => {
+    const line = order.lines?.[0];
+    const total = (order.lines || []).reduce((t, l) => t + l.total_eur, 0);
+    const row = el("button", "watch-row");
+    row.type = "button";
+    const info = el("div");
+    info.append(el("strong", "", order.need?.text || "Order"),
+      el("span", "", `${line ? line.name : "No offer"} · ${eur(total)} · ${order.id.replace("order-", "").slice(0, 8)}`));
+    row.append(info, el("span", "status", STATUS_LABEL[order.status] || order.status));
+    row.addEventListener("click", () => {  // explicit choice: voice tools then act on this order
+      state.approval = order;
+      renderOrder(order);
+      startBackendDecisionPolling();
+      $("#decision-title").scrollIntoView({behavior: "smooth", block: "center"});
+    });
+    return row;
+  }));
 }
 
 function renderSubstitutes(order, subs) {
@@ -857,17 +891,9 @@ function handleOnboardingAnswer(transcript) {
 function startVimo({announce = true} = {}) {
   if (elevenStarting || elevenConversation) return;  // already connecting or live: a second start means a second voice
   if (!localStorage.getItem("aimo-rules")) {
-    const defaultRules = {
-      buyer: "Hotel North", limit: "500", budget: "2000", claim: "Lactose-free", substitutes: "on",
-    };
-    localStorage.setItem("aimo-rules", JSON.stringify(defaultRules));
-    $("#policy-copy").textContent = "Hotel North: Vimo can act up to €500 when every dietary and delivery check passes.";
-    state.events.unshift([
-      new Date().toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"}),
-      "Starter policy enabled",
-      "Vimo is ready with a €500 automatic approval limit. Change it any time in purchasing rules.",
-    ]);
-    renderTimeline();
+    $("#rules-dialog").showModal();
+    setVimoState("Set your purchasing rules", "Vimo needs your limits and dietary rules before it drafts or approves any order.");
+    return;
   }
   vimoEnabled = true;
   const alert = "Vimo is active. Tell me what your kitchen needs, or ask what needs attention.";
@@ -950,13 +976,14 @@ $("#ask-form").addEventListener("submit", async (event) => {
 $("#start-vimo").addEventListener("click", startVimo);
 $("#rules-form").addEventListener("submit", (event) => {
   event.preventDefault();
+  if (event.submitter?.value === "cancel") { $("#rules-dialog").close(); return; }  // × and Cancel also submit the form
   const rules = Object.fromEntries(new FormData(event.currentTarget));
   localStorage.setItem("aimo-rules", JSON.stringify(rules));
   $("#policy-copy").textContent = `${rules.buyer}: orders up to €${rules.limit} can proceed automatically when all dietary and delivery rules are met.`;
   $("#rules-dialog").close();
-  state.events.unshift([new Date().toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"}), "Buyer policy updated", `Automatic approval limit set to €${rules.limit}.`]);
-  renderTimeline();
-  speak("Your purchasing rules have been saved.");
+  addEvent("Buyer policy updated", `Auto-approve up to ${eur(Number(rules.limit))}, budget ${eur(Number(rules.budget))}${rules.allergens ? `, no ${rules.allergens}` : ""}.`);
+  if (!vimoEnabled) startVimo();  // the first save continues straight into the conversation
+  else speak("Your purchasing rules have been saved.");
 });
 
 $("#voice-toggle").addEventListener("click", (event) => {

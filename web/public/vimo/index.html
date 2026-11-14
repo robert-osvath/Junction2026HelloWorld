@@ -83,25 +83,26 @@
         </section>
 
         <section class="panel inventory-panel">
-          <div class="panel-heading"><div><p class="eyebrow">INVENTORY WATCH</p><h2>What needs attention next</h2></div><span class="muted">Updated 2 min ago</span></div>
-          <div class="inventory-row"><span class="dot urgent"></span><div><strong>Lactose-free milk</strong><p>Projected below par level at Hotel North</p></div><strong>2 days</strong><button class="secondary">Review</button></div>
-          <div class="inventory-row"><span class="dot"></span><div><strong>Oat drink barista</strong><p>Standing order is 12% above usual volume</p></div><strong>Review</strong><button class="secondary">Inspect</button></div>
+          <div class="panel-heading"><div><p class="eyebrow">ORDER WATCH</p><h2>Your orders with Vimo</h2></div><a class="text-button" href="/approvals">All approvals ↗</a></div>
+          <div id="order-watch"></div>
         </section>
       </main>
     </div>
 
     <dialog id="rules-dialog">
       <form method="dialog" id="rules-form">
-        <div class="dialog-heading"><div><p class="eyebrow">FIRST-TIME SETUP</p><h2>Set your purchasing rules</h2></div><button class="close" value="cancel" aria-label="Close">×</button></div>
+        <div class="dialog-heading"><div><p class="eyebrow">FIRST-TIME SETUP</p><h2>Set your purchasing rules</h2></div><button class="close" value="cancel" formnovalidate aria-label="Close">×</button></div>
         <p class="dialog-copy">The agent will act only inside these limits. You can update them at any time.</p>
         <div class="form-grid">
-          <label>Buyer / location<input name="buyer" required value="Hotel North" /></label>
+          <label>Buyer / location<input name="buyer" required value="My kitchen" /></label>
           <label>Auto-approve limit (€)<input name="limit" type="number" min="0" value="500" required /></label>
           <label>Order budget (€)<input name="budget" type="number" min="0" value="2000" required /></label>
           <label>Required claim<input name="claim" value="Lactose-free" /></label>
+          <label>Blocked allergens (GS1 codes, comma-separated)<input name="allergens" placeholder="e.g. AM (milk), AW (gluten)" pattern="\s*[A-Za-z]{2}(\s*,\s*[A-Za-z]{2})*\s*" title="Two-letter GS1 codes separated by commas, e.g. AM, AW" /></label>
         </div>
         <label class="check"><input name="substitutes" type="checkbox" checked /> Allow substitutions that preserve dietary and allergen rules</label>
-        <div class="dialog-actions"><button class="secondary" value="cancel">Cancel</button><button class="primary" value="default">Save rules and continue</button></div>
+        <label class="check"><input name="strict_allergens" type="checkbox" /> Strict: also reject products that may contain a blocked allergen</label>
+        <div class="dialog-actions"><button class="secondary" value="cancel" formnovalidate>Cancel</button><button class="primary" value="default">Save rules and continue</button></div>
       </form>
     </dialog>
 

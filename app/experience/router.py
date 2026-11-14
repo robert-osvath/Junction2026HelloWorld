@@ -22,12 +22,11 @@ from app.mocks import load
 from app.catalog import store as catalog_store
 from app.catalog.aimo import AimoError, get_client
 from app.catalog.offers import InvalidOfferRequest, get_offers
-from app.jury.router import evaluate
 from app.experience.vimo_agent import VIMO_ELEVENLABS_AGENT_ID
 from app.orders import service as order_service
 from app.orders.mandates import MANDATES
 from app.orders.store import get_order_store
-from contracts import JuryRequest, Need, Offer, OffersRequest, Order, OrderRequest
+from contracts import Need, Offer, OffersRequest, Order, OrderRequest
 
 router = APIRouter(prefix="/experience", tags=["buyer experience"])
 logger = logging.getLogger(__name__)
@@ -121,6 +120,10 @@ class CreateDraftRequest(PrepareDecisionRequest):
     unit: Literal["L", "kg", "pcs"]
     deliver_by: date
     required_claims: list[str] = Field(default_factory=list, max_length=20)
+    banned_allergens: list[str] = Field(default_factory=list, max_length=30)
+    strict_allergens: bool = False
+    substitutes_allowed: bool = True
+    exception_reason: str | None = Field(default=None, max_length=500)
 
 
 def demo_brief(request: BriefRequest) -> str:
@@ -131,45 +134,29 @@ def demo_brief(request: BriefRequest) -> str:
 
 
 def backend_agent_state(auto_approve_limit: float | None = None) -> AgentStateResponse:
-    """Read the repository's order and jury-agent outputs in one place.
-
-    These are fixture-backed in the current hackathon repository, but this
-    adapter intentionally reads the backend contracts rather than duplicating
-    prices, decisions, or rationale in the voice experience.
-    """
-    mandate = load("mandate")
-    if auto_approve_limit is not None:
-        mandate = mandate.model_copy(update={"auto_approve_limit_eur": auto_approve_limit})
-    need = load("need")
-    offer = load("offer")
-    jury = evaluate(JuryRequest(mandate=mandate, need=need, offers=[offer]))
-    verdicts = [verdict.model_dump(mode="json") for verdict in jury.verdicts]
-    status_for_decision = {
-        "auto_order": "placed",
-        "human_approval": "pending_approval",
-        "substitutes": "substitutes_proposed",
-        "reject": "rejected",
-    }
-    # Prefer the latest recorded buyer action over the projected jury state.
-    # This is what makes a spoken decline visible to every connected client,
-    # rather than recreating the same fixture-backed approval on refresh.
-    recorded = next(
-        (order for order in get_order_store().list() if order.mandate_id == "mandate-vimo-live"),
-        None,
-    )
-    order_id = recorded.id if recorded else "not-created"
-    order_status = recorded.status if recorded else status_for_decision[jury.decision]
+    """Expose an actual current order rather than recreating a demo decision."""
+    del auto_approve_limit  # Rules are bound to each order when its draft is created.
+    # only the cockpit's own orders: other buyers' and the game's orders must not leak into Vimo's answers
+    orders = [order for order in get_order_store().list() if order.mandate_id == "mandate-vimo-live"]
+    recorded = next((order for order in orders if order.status == "pending_approval"), None) or (orders[0] if orders else None)
+    if recorded is None:
+        return AgentStateResponse(
+            order_id="not-created", order_status="not-created", jury_decision="none",
+            chosen_product_id=None, verdicts=[], summary="No backend order has been created yet.",
+        )
+    line = recorded.lines[0] if recorded.lines else None
+    total = sum(item.total_eur for item in recorded.lines)
     summary = (
-        f"The jury selected {offer.name}: {offer.units_needed} {offer.sales_unit}, "
-        f"EUR {offer.total_eur:.2f}, available {offer.available_date.isoformat()}. "
-        f"Jury decision: {jury.decision}."
+        f"Current order: {recorded.need.text}. "
+        f"{line.name if line else 'No product'} totals EUR {total:.2f}; "
+        f"status: {recorded.status.replace('_', ' ')}."
     )
     return AgentStateResponse(
-        order_id=order_id,
-        order_status=order_status,
-        jury_decision=jury.decision,
-        chosen_product_id=jury.chosen_product_id,
-        verdicts=verdicts,
+        order_id=recorded.id,
+        order_status=recorded.status,
+        jury_decision="human_approval" if recorded.status == "pending_approval" else recorded.status,
+        chosen_product_id=line.product_id if line else None,
+        verdicts=[verdict.model_dump(mode="json") for verdict in recorded.verdicts],
         summary=summary,
     )
 
@@ -220,7 +207,7 @@ def demo_command(transcript: str) -> CommandResponse:
     if re.search(r"\b(suggest|recommend|substitut|alternative|option)\b", normalized):
         return CommandResponse(
             intent="suggestion",
-            spoken_reply="I have a compliant suggestion ready for you to review: Valio Eila lactose-free milk for Monday delivery. It still needs your approval because the order exceeds your automatic limit.",
+            spoken_reply=backend_agent_state().summary,
             source="demo",
         )
     return CommandResponse(
@@ -316,29 +303,9 @@ async def agent_state(
 
 @router.post("/prepare-decision", response_model=Order)
 async def prepare_decision(request: PrepareDecisionRequest) -> Order:
-    """Create one backend-tracked pending order for a buyer approval flow.
-
-    This is a simulated order in the hackathon backend. It is intentionally
-    held in pending_approval until the buyer uses the visible controls.
-    """
-    mandate = load("mandate").model_copy(update={
-        "id": "mandate-vimo-live",
-        "buyer_name": request.buyer_name,
-        "auto_approve_limit_eur": request.auto_approve_limit,
-        "budget_per_order_eur": request.budget,
-    })
-    MANDATES[mandate.id] = mandate
-    existing = next(
-        (order for order in get_order_store().list() if order.mandate_id == mandate.id),
-        None,
-    )
-    if existing:
-        return existing
-    return order_service.create(OrderRequest(
-        mandate_id=mandate.id,
-        need=load("need"),
-        lines=[load("offer")],
-    ))
+    """Deprecated: a client must create a catalog-backed draft instead."""
+    del request
+    raise HTTPException(status_code=410, detail="Create a catalog-backed draft with /experience/create-draft.")
 
 
 _UNIT_LABEL = {"L": "litres (L)", "KG": "kilograms (kg)"}
@@ -398,12 +365,21 @@ async def create_draft(request: CreateDraftRequest) -> Order:
     Price, availability, and package quantity are rebuilt from the Valio Aimo
     feeds immediately before deterministic jury and policy evaluation.
     """
+    # GS1 allergen codes (AM milk, AW gluten, ...): a free-text "milk" would match nothing and silently ban nothing
+    unknown = [code for code in request.banned_allergens if not re.fullmatch(r"[A-Z]{2}", code)]
+    if unknown:
+        raise HTTPException(status_code=422, detail=(
+            f"Unknown allergen code(s): {', '.join(unknown)}. Use GS1 codes, e.g. AM (milk), AW (gluten), "
+            "AE (egg), AY (soy), AN (tree nuts), AP (peanuts), AF (fish), AS (sesame)."))
     mandate = load("mandate").model_copy(update={
         "id": "mandate-vimo-live",
         "buyer_name": request.buyer_name,
         "auto_approve_limit_eur": request.auto_approve_limit,
         "budget_per_order_eur": request.budget,
         "required_claims": request.required_claims,
+        "banned_allergens": request.banned_allergens,
+        "strict_allergens": request.strict_allergens,
+        "substitutes_allowed": request.substitutes_allowed,
     })
     MANDATES[mandate.id] = mandate
     need = Need(
@@ -412,7 +388,7 @@ async def create_draft(request: CreateDraftRequest) -> Order:
         quantity=request.quantity,
         unit=request.unit,
         deliver_by=request.deliver_by,
-        extra_constraints=request.required_claims,
+        extra_constraints=request.required_claims + ([f"Exception: {request.exception_reason}"] if request.exception_reason else []),
     )
     offers = build_offers(OffersRequest(
         need=need,
@@ -509,7 +485,7 @@ async def ask(request: AskRequest) -> AskResponse:
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         return AskResponse(
-            text="I can confirm the current milk order needs approval because it exceeds the automatic limit. Ask me for the end-of-day summary, or say approve or reject this order.",
+            text=backend_agent_state().summary + " Ask me for the end-of-day summary, or say approve or reject a pending order.",
             source="demo",
         )
     prompt = (
