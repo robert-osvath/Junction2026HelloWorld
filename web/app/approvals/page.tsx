@@ -1,14 +1,19 @@
 "use client";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
 import { ago, api, eur, heldReason, LABEL, total, type Order, type Status } from "../api";
 
 const TABS = Object.keys(LABEL) as Status[];
 
-export default function Inbox() {
+export default function Page() {
+  return <Suspense fallback={<p>Loading...</p>}><Inbox /></Suspense>;
+}
+
+function Inbox() {
   const router = useRouter();
-  const [tab, setTab] = useState<Status>("pending_approval");
+  const initial = useSearchParams().get("status") as Status | null;  // deep links, e.g. from the cockpit's metric cards
+  const [tab, setTab] = useState<Status>(initial && Object.hasOwn(LABEL, initial) ? initial : "pending_approval");
   const [orders, setOrders] = useState<Order[] | null>(null);
   const [err, setErr] = useState("");
 

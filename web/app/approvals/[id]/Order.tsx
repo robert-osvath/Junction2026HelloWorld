@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import {
   api, dt, eur, heldReason, LABEL, total,
@@ -64,6 +65,7 @@ export default function OrderView({ id }: { id: string }) {
   const [busy, setBusy] = useState(false);
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState("");
+  const router = useRouter();
 
   const load = useCallback(
     () =>
@@ -74,6 +76,15 @@ export default function OrderView({ id }: { id: string }) {
   );
 
   useEffect(() => { void load(); }, [load]);
+
+  async function acceptSubstitute(product_id: string) {
+    setErr("");
+    setBusy(true);
+    try {
+      const next = await api<Order>(`/orders/${id}/accept-substitute`, "POST", { product_id });
+      router.push(`/approvals/${next.id}`);  // the substitute is a new order with its own jury verdicts
+    } catch (e) { setErr((e as Error).message); setBusy(false); }
+  }
 
   async function act(path: "approve" | "reject", body?: RejectRequest) {
     setErr("");
@@ -160,6 +171,16 @@ export default function OrderView({ id }: { id: string }) {
         <section className="panel stack" aria-labelledby="h-subs">
           <div className="panel-heading"><div><p className="eyebrow">Alternatives</p><h2 id="h-subs">Substitutes</h2></div></div>
           <Lines lines={order.substitutes} />
+          {order.status === "substitutes_proposed" && (
+            <div className="row wrap">
+              {order.substitutes.map((s) => (
+                <button key={s.product_id} className="btn primary" disabled={busy} onClick={() => void acceptSubstitute(s.product_id)}>
+                  Order {s.name} ({eur(s.total_eur)})
+                </button>
+              ))}
+            </div>
+          )}
+          {order.status === "substitutes_proposed" && <p className="muted">Ordering a substitute creates a new order that the jury checks again; this one is then closed.</p>}
         </section>
       )}
 

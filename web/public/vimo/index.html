@@ -55,10 +55,10 @@
         </section>
 
         <section class="metrics" aria-label="Your orders with Vimo">
-          <article><p>Orders with Vimo</p><strong id="m-orders">0</strong><span>drafted from this cockpit</span></article>
-          <article><p>Placed</p><strong class="good" id="m-placed">€0</strong><span id="m-placed-n">0 orders</span></article>
-          <article><p>Awaiting approval</p><strong class="warn" id="m-pending">0</strong><span>held by the jury</span></article>
-          <article><p>Jury confidence</p><strong id="m-conf">—</strong><span>latest order, average</span></article>
+          <a class="metric-link" href="/approvals"><article><p>Orders with Vimo</p><strong id="m-orders">0</strong><span>drafted from this cockpit</span></article></a>
+          <a class="metric-link" href="/approvals?status=placed"><article><p>Placed</p><strong class="good" id="m-placed">€0</strong><span id="m-placed-n">0 orders</span></article></a>
+          <a class="metric-link" href="/approvals?status=pending_approval"><article><p>Awaiting approval</p><strong class="warn" id="m-pending">0</strong><span>held by the jury</span></article></a>
+          <a class="metric-link" href="/approvals?status=substitutes_proposed"><article><p>Substitutes proposed</p><strong id="m-subs">0</strong><span>pick one to order</span></article></a>
         </section>
 
         <section class="grid">
@@ -73,6 +73,7 @@
               <div><p class="eyebrow">RECOMMENDATION</p><h3 id="rec-name">—</h3><p id="rec-detail"></p></div>
               <button class="text-button" id="speak-update">Hear update ↗</button>
             </div>
+            <div class="substitute-list" id="substitute-list" hidden></div>
           </article>
 
           <article class="panel activity-panel">

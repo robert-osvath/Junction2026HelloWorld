@@ -58,7 +58,7 @@ button.btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .panel { background: var(--paper); border: 1px solid var(--line); border-radius: 6px; padding: 23px; }
 .panel dl { display: grid; grid-template-columns: 160px 1fr; gap: 4px 16px; margin: 0 0 16px; }
 .panel dt { color: var(--muted); } .panel dd { margin: 0; }
-.row { display: flex; gap: 8px; }
+.row { display: flex; gap: 8px; } .row.wrap { flex-wrap: wrap; margin-top: 12px; }
 textarea { display: block; width: 100%; max-width: 560px; min-height: 72px; font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--paper); margin: 4px 0 8px; }
 .err { color: var(--error-text); }
 .s-placed, .ok { color: var(--green); }

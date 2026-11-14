@@ -333,12 +333,18 @@ function renderOrder(order) {
     ? `${line.units_needed} × ${line.sales_unit} · ${eur(line.total_eur)} · available ${line.available_date}`
     : sub ? `${sub.units_needed} × ${sub.sales_unit} · ${eur(sub.total_eur)} · available ${sub.available_date}` : heldReason(order);
   const pending = order.status === "pending_approval";
-  $("#approval-banner").hidden = !pending;
+  const subs = order.status === "substitutes_proposed" ? (order.substitutes || []) : [];
+  $("#approval-banner").hidden = !pending && !subs.length;
   if (pending) {
     $("#approval-title").textContent = `Approve ${line ? `${line.units_needed} × ${line.name}` : "this order"} for ${eur(line?.total_eur || 0)}?`;
     $("#approval-detail").textContent = heldReason(order) || "The jury asked for a human decision.";
+  } else if (subs.length) {
+    $("#approval-title").textContent = `${line?.name || "This product"} did not pass the jury. Pick a substitute below.`;
+    $("#approval-detail").textContent = "See the jury verdicts in the decision panel. Ordering a substitute starts a new, re-checked order.";
   }
-  for (const id of ["#approve-order", "#reject-order", "#voice-decision"]) $(id).disabled = !pending;
+  for (const id of ["#approve-order", "#voice-decision"]) { $(id).disabled = !pending; $(id).hidden = !pending; }
+  $("#reject-order").disabled = !pending && !subs.length;
+  renderSubstitutes(order, subs);
 }
 
 let myOrders = [];
@@ -351,13 +357,46 @@ function renderMetrics() {
   $("#m-placed").textContent = eur(placed.reduce((t, o) => t + sum(o), 0));
   $("#m-placed-n").textContent = `${placed.length} order${placed.length === 1 ? "" : "s"}`;
   $("#m-pending").textContent = String(myOrders.filter((o) => o.status === "pending_approval").length);
-  const v = state.approval?.verdicts || [];
-  $("#m-conf").textContent = v.length ? `${Math.round(100 * v.reduce((t, x) => t + x.confidence, 0) / v.length)}%` : "—";
+  $("#m-subs").textContent = String(myOrders.filter((o) => o.status === "substitutes_proposed").length);
 }
 
 function rememberOrder(order) {
   myOrders = [order, ...myOrders.filter((o) => o.id !== order.id)];
   renderMetrics();
+}
+
+function renderSubstitutes(order, subs) {
+  // the jury's ranked alternatives; picking one creates a new order that the jury checks again
+  const list = $("#substitute-list");
+  list.hidden = !subs.length;
+  list.replaceChildren(...subs.map((sub) => {
+    const row = el("div", "substitute-row");
+    const info = el("div");
+    info.append(el("strong", "", sub.name),  // the jury's ranker already tags Best/Better/Good in the name
+      el("span", "", `${sub.units_needed} × ${sub.sales_unit} · ${eur(sub.total_eur)} · available ${sub.available_date}`));
+    const button = el("button", "primary", "Order this instead");
+    button.addEventListener("click", () => acceptSubstitute(order, sub));
+    row.append(info, button);
+    return row;
+  }));
+}
+
+async function acceptSubstitute(order, sub) {
+  for (const b of document.querySelectorAll("#substitute-list button")) b.disabled = true;
+  addEvent("Ordering substitute", `${sub.name}: the jury checks it again…`);
+  try {
+    const response = await fetch(`/orders/${encodeURIComponent(order.id)}/accept-substitute`, {
+      method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({product_id: sub.product_id}),
+    });
+    const body = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(typeof body?.detail === "string" ? body.detail : "The substitute could not be ordered.");
+    showOrder(body, "Substitute ordered");
+    startBackendDecisionPolling();
+    if (body.status === "pending_approval") openDecisionConfirmation(null, `Substitute: ${sub.name}`);
+  } catch (error) {
+    addEvent("Could not order the substitute", error.message);
+    for (const b of document.querySelectorAll("#substitute-list button")) b.disabled = false;
+  }
 }
 
 function showOrder(order, title) {
@@ -876,7 +915,9 @@ async function loadDecision() {
 }
 
 async function recordBuyerDecision(decision) {
-  if (!state.approval || state.approval.status !== "pending_approval") return null;
+  const status = state.approval?.status;
+  const allowed = status === "pending_approval" || (decision === "reject" && status === "substitutes_proposed");
+  if (!allowed) return null;
   const endpoint = decision === "approve" ? "approve" : "reject";
   const response = await fetch(`/orders/${state.approval.id}/${endpoint}`, {method: "POST"});
   if (!response.ok) throw new Error("The decision could not be recorded");

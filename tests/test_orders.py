@@ -77,6 +77,48 @@ def test_substitutes_proposed_then_reject(monkeypatch):
     assert c.post(f"/orders/{o['id']}/reject").json()["status"] == "rejected"
 
 
+def test_accept_substitute_creates_new_order_and_closes_original(monkeypatch):
+    import app.orders.service as svc
+    real = svc.evaluate
+    monkeypatch.setattr(svc, "evaluate", lambda req: load("jury_result").model_copy(update={"decision": "substitutes"}))
+    o = place().json()
+    sub = o["substitutes"][0]
+    monkeypatch.setattr(svc, "evaluate", real)
+    assert c.post(f"/orders/{o['id']}/accept-substitute", json={"product_id": "not-a-sub"}).status_code == 404
+    new = c.post(f"/orders/{o['id']}/accept-substitute", json={"product_id": sub["product_id"]}).json()
+    assert new["id"] != o["id"] and new["lines"][0]["product_id"] == sub["product_id"]
+    assert new["status"] in {"placed", "pending_approval", "substitutes_proposed", "rejected"} and new["need"] == o["need"]
+    old = c.get(f"/orders/{o['id']}").json()
+    assert old["status"] == "rejected"
+    last = c.get("/audit", params={"order_id": o["id"]}).json()[-1]
+    assert last["action"] == "order.rejected" and new["id"] in last["human_summary"]
+    # only once, and never for an order that is not proposing substitutes
+    assert c.post(f"/orders/{o['id']}/accept-substitute", json={"product_id": sub["product_id"]}).status_code == 409
+    assert c.post(f"/orders/{place().json()['id']}/accept-substitute", json={"product_id": sub["product_id"]}).status_code == 409
+    assert c.get("/audit/verify").json()["ok"] is True
+
+
+def test_reject_refused_while_substitute_is_being_ordered(monkeypatch):
+    import app.orders.service as svc
+    monkeypatch.setattr(svc, "evaluate", lambda req: load("jury_result").model_copy(update={"decision": "substitutes"}))
+    o = place().json()
+    svc._accepting.add(o["id"])
+    try:
+        r = c.post(f"/orders/{o['id']}/reject")
+        assert r.status_code == 409 and "substitute is being ordered" in r.text
+    finally:
+        svc._accepting.discard(o["id"])
+    assert c.post(f"/orders/{o['id']}/reject").json()["status"] == "rejected"
+
+
+def test_vimo_mandate_survives_restart():
+    import importlib
+
+    import app.orders.mandates as mandates
+    fresh = importlib.reload(mandates).MANDATES  # as after a restart, before any cockpit draft
+    assert fresh["mandate-vimo-live"].auto_approve_limit_eur == 500.0
+
+
 def test_invalid_transitions_409():
     placed = place().json()["id"]
     rejected = place(units=100).json()["id"]
