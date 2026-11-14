@@ -1473,8 +1473,9 @@ async function gather({need=FX.need, q='lactose-free milk', claims='FREE_FROM_LA
     const shortlist = ids || arr.map(x => x.product_id || x.id).filter(Boolean).slice(0,5);
     if (!shortlist.length) throw new Error('no products found');
     const offers = await post('/offers', {need, product_ids:shortlist, delivery_date:need.deliver_by}); mk('price');
-    const offer = offers[0]; if (!offer) throw new Error('no offers');
+    if (!offers.length) throw new Error('no offers');
     const jury = await post('/jury/evaluate', {mandate:FX.mandate, need, offers}); mk('jury');
+    const offer = offers.find(x => x.product_id === jury.chosen_product_id) || offers[0];
     const order = await post('/orders', {mandate_id:FX.mandate.id, need, lines:[offer]}); mk('order');
     const events = await J('/audit?order_id=' + encodeURIComponent(order.id));
     const v = await J('/audit/verify'); mk('audit');
@@ -1490,7 +1491,7 @@ async function buildChain(d, need=FX.need){
   return out;
 }
 async function verifyChain(ev){ let prev = '0'.repeat(64); for (const e of ev){ if (e.prev_hash!==prev || e.hash!==await sha(JSON.stringify(e.payload)+prev)) return false; prev = e.hash; } return true; }
-const short = h => String(h).replace('sha256:','').slice(0,10);
+const short = h => esc(String(h).replace("sha256:","").slice(0,10));   // escaped: hashes come from the API
 async function getChain(d, need){
   try {
     if (d.events && d.events.length){ const chain = d.events.map(e => ({action:e.action,hash:e.hash,prev_hash:e.prev_hash})); return {chain, ok: d.verified && chain.every((e,i)=>i===0||e.prev_hash===chain[i-1].hash)}; }
@@ -1501,7 +1502,8 @@ async function runAimo(){
   if (R.started) return; R.started = true;
   await detectLive();
   const t0 = performance.now(), el = () => (performance.now()-t0)/1000, marks = {};
-  const d = await gather({marks}); Object.assign(R.t, marks);
+  let d = await gather({marks});
+  if (d.live && d.order.status !== 'placed'){ console.warn('live order not placed, using fixtures', d.order.status); d = {...d, offer:FX.offer, jury:FX.jury, order:FX.order, events:null, live:false, verified:null}; } Object.assign(R.t, marks);
   const {chain, ok} = await getChain(d, FX.need); R.t.audit = el();
   Object.assign(R, {d, chain, ok, secs:el(), live:d.live, found:d.live ? (d.found||0) : 85, short:d.live ? 1 : 5, done:true});
   setMode($('mode'), d.live); R.waiters.splice(0).forEach(f => f());
@@ -1671,7 +1673,7 @@ function setBeatText(i){
   const dt = [
     `Need parsed: 1,000 L · lactose-free milk · deliver by ${fmtDay(FX.need.deliver_by)} · budget €2,500`,
     `Catalog search · ${R.found} products compared · claim FREE_FROM_LACTOSE`,
-    `Live price + availability · shortlist ${R.short} · best: ${esc(shortName(o.name))} €${o.comparison_price_eur.toFixed(2)}/${o.comparison_unit}`,
+    `Live price + availability · shortlist ${R.short} · best: ${esc(shortName(o.name))} €${o.comparison_price_eur.toFixed(2)}/${esc(o.comparison_unit)}`,
     `Verdict: ${esc(String(d.jury.decision).replace(/_/g,' '))} · ${nOk}/${d.jury.verdicts.length} jurors approve`,
     `${esc(conf)} · ${o.units_needed} × ${esc(shortName(o.name))} · €${tot} · delivery ${fmtDay(o.available_date)}`,
     `${R.chain.length} hash-chained events · each hash covers the one before it`][i];
@@ -1681,7 +1683,7 @@ function setBeatText(i){
 }
 function endBeat(i){   // tidy what the beat showed so only one chapter is on screen at a time
   clearPins(); $('verd').classList.remove('on'); CF.length = 0; $('rcpt').className = '';
-  if (i === 4 && !TR.arrived){ TR.on = false; TR.arrived = true; TR.honked = true; TRUCK.g.position.set(0,0,HOTEL.z); stopEngine(); }   // skipped mid-drive: park silently, no honk
+  if (i === 4 && !TR.arrived){ TR.on = false; TR.arrived = true; if (!TR.honked){ TR.honked = true; HONK_OK = true; sfx('sfx_honk',.8); HONK_OK = false; } TRUCK.g.position.set(0,0,HOTEL.z); stopEngine(); }   // skipped mid-drive: park, still exactly one honk
 }
 function enterBeat(i){
   if (REV.beat >= 0) endBeat(REV.beat);
@@ -1691,7 +1693,7 @@ function enterBeat(i){
   if (i === 0) ev.push([.3, () => mkPin(`<b>BUYER AGENT REQUEST</b>1,000 L lactose-free milk<br>by ${fmtDay(FX.need.deliver_by)}`, [HOTEL.x,50,HOTEL.z], 'req')]);
   if (i === 2) ev.push([.7, () => REVG.shortPts.forEach((p,k) => {
     if (k >= Math.max(1,R.short)) return;
-    const html = p.shop ? `<b>${esc(p.shop.name)}</b><span>${esc(p.shop.price.split(' (')[0])} · ${esc(p.shop.stock)}</span>` : `<b>Best: ${esc(shortName(o.name))}</b><span>€${o.comparison_price_eur.toFixed(2)}/${o.comparison_unit} · ${fmtDay(o.available_date)}</span>`;
+    const html = p.shop ? `<b>${esc(p.shop.name)}</b><span>${esc(p.shop.price.split(' (')[0])} · ${esc(p.shop.stock)}</span>` : `<b>Best: ${esc(shortName(o.name))}</b><span>€${o.comparison_price_eur.toFixed(2)}/${esc(o.comparison_unit)} · ${fmtDay(o.available_date)}</span>`;
     mkPin(html, [p.x,30,p.z], p.shop ? '' : 'best');
   })]);
   if (i === 3){
@@ -1807,7 +1809,7 @@ function parseNeed(t){
   const m = t.match(/(\d[\d,.]*)\s*(litres?|liters?|kilograms?|kilos?|kg|pcs|pieces?|l)\b/i);
   const qty = m ? (parseFloat(m[1].replace(/,/g,'')) || 100) : 100;
   const u = m ? m[2].toLowerCase() : 'pcs', unit = /^l/.test(u) ? 'L' : /^k/.test(u) ? 'kg' : 'pcs';
-  let date = FX.need.deliver_by; const w = t.match(/\b(sun|mon|tue|wed|thu|fri|sat)[a-z]*/i);
+  let date = FX.need.deliver_by; const w = t.match(/\b(sun|mon|tue|wed|thu|fri|sat)(day|nesday|urday|rsday|sday)?\b/i);
   if (w){ const delta = ((DOW[w[1].toLowerCase()]-5+7)%7)||7; date = new Date(Date.UTC(2026,10,13+delta)).toISOString().slice(0,10); }   // game "today" = Fri 13 Nov 2026
   return {text:t, product_intent:t, quantity:qty, unit, deliver_by:date, extra_constraints:[]};
 }
@@ -1819,13 +1821,13 @@ async function runChallenge(text){
   try {
     await detectLive(); setMode($('chMode'), live);
     const need = parseNeed(text);
-    step(`<b>Need parsed:</b> ${need.quantity} ${need.unit} · by ${need.deliver_by}`, `“${esc(text)}”`);
+    step(`<b>Need parsed:</b> ${esc(need.quantity)} ${esc(need.unit)} · by ${esc(need.deliver_by)}`, `“${esc(text)}”`);
     const marks = {}, d = await gather({need, q:text, claims:'', ids:null, marks});
     setMode($('chMode'), d.live);
-    step(d.live ? `<b>Catalog search:</b> ${d.found} candidates → shortlist <span class="ok">+${(marks.catalog||0).toFixed(1)}s</span>` : `<b>DEMO DATA:</b> showing the milk fixture for your typed need (no live API)`);
-    const o = d.offer; step(`<b>Offer:</b> ${esc(o.name.replace('®',''))}`, `${o.units_needed} × ${o.sales_unit} @ €${o.unit_price_eur.toFixed(2)} = €${o.total_eur.toLocaleString('en',{minimumFractionDigits:2})}`);
-    step(`<b>Jury:</b> ${d.jury.decision}`, d.jury.verdicts.map(v => `${v.juror}: ${v.decision} ${Math.round(v.confidence*100)}%`).join(' · '));
-    step(`<b>Order:</b> ${d.order.confirmation_no||d.order.id} · ${d.order.status}`);
+    step(d.live ? `<b>Catalog search:</b> ${esc(d.found)} candidates → shortlist <span class="ok">+${(marks.catalog||0).toFixed(1)}s</span>` : `<b>DEMO DATA:</b> showing the milk fixture for your typed need (no live API)`);
+    const o = d.offer; step(`<b>Offer:</b> ${esc(o.name.replace('®',''))}`, `${esc(o.units_needed)} × ${esc(o.sales_unit)} @ €${o.unit_price_eur.toFixed(2)} = €${o.total_eur.toLocaleString('en',{minimumFractionDigits:2})}`);
+    step(`<b>Jury:</b> ${esc(d.jury.decision)}`, d.jury.verdicts.map(v => `${esc(v.juror)}: ${esc(v.decision)} ${Math.round(v.confidence*100)}%`).join(' · '));
+    step(`<b>Order:</b> ${esc(d.order.confirmation_no||d.order.id)} · ${esc(d.order.status)}`);
     const {chain, ok} = await getChain(d, need);
     const row = document.createElement('div'); row.className = 'chain'; out.appendChild(row);
     for (const e of chain){ await sleep(380); const l = document.createElement('div'); l.className = 'lnk'; l.innerHTML = `<b>${esc(e.action)}</b><small>${short(e.prev_hash)}… → ${short(e.hash)}</small>`; row.appendChild(l); sfx('sfx_notify',.25); }

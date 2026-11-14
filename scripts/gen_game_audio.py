@@ -13,9 +13,9 @@ AUDIO = Path(__file__).resolve().parent.parent / "web" / "game" / "audio"
 
 
 def jobs(spec: dict) -> list[tuple[str, str, dict]]:
-    out = [(l["id"], "tts", l) for l in spec["lines"]]
-    out += [(s["id"], "sfx", s) for s in spec["sfx"]]
-    out += [(m["id"], "music", m) for m in spec["music"]]
+    out = [(line["id"], "tts", line) for line in spec["lines"]]
+    out += [(fx["id"], "sfx", fx) for fx in spec["sfx"]]
+    out += [(track["id"], "music", track) for track in spec["music"]]
     return out
 
 
@@ -55,7 +55,11 @@ def main(argv: list[str]) -> None:
     for jid, kind, item in todo:
         try:
             data = b"".join(render(client, spec, kind, item))
-            (AUDIO / f"{jid}.mp3").write_bytes(data)
+            if len(data) < 1024:  # an error body or empty stream must not become a "done" file
+                raise ValueError(f"suspiciously small response ({len(data)} bytes)")
+            tmp = AUDIO / f"{jid}.mp3.tmp"
+            tmp.write_bytes(data)
+            tmp.replace(AUDIO / f"{jid}.mp3")  # atomic: a crash never leaves a truncated mp3 that later runs skip
             print(f"  ok   {jid} ({len(data) // 1024} KB)")
         except Exception as e:  # keep going; rerun regenerates only the missing ones
             failed.append(jid)
