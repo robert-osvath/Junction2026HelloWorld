@@ -30,6 +30,7 @@ from app.jury.gates import (
     check_deadline,
     check_sales_block,
     check_stock_evidence,
+    check_sustainability,
     evaluate_tier0,
 )
 from contracts import CatalogItem, JuryResult, Mandate, Need, Offer, Verdict
@@ -83,10 +84,16 @@ def aggregate_verdicts(
         return JuryResult(verdicts=verdicts, decision="reject", chosen_product_id=None)
 
     if "reject" in decisions:
-        non_cost_reject = any(v.decision == "reject" and v.juror != "cost" for v in verdicts)
-        if non_cost_reject and mandate.substitutes_allowed:
+        hard_non_cost_reject = any(
+            v.decision == "reject" and v.juror not in ("cost", "sustainability") for v in verdicts
+        )
+        hard_cost_reject = any(v.decision == "reject" and v.juror == "cost" for v in verdicts)
+        if hard_non_cost_reject and mandate.substitutes_allowed:
             return JuryResult(verdicts=verdicts, decision="substitutes", chosen_product_id=None)
-        return JuryResult(verdicts=verdicts, decision="reject", chosen_product_id=None)
+        if hard_cost_reject or hard_non_cost_reject:
+            return JuryResult(verdicts=verdicts, decision="reject", chosen_product_id=None)
+        # A sustainability-only reject routes to human_approval (advisory/soft-escalate authority)
+        return JuryResult(verdicts=verdicts, decision="human_approval", chosen_product_id=chosen_id)
 
     if "escalate" in decisions or any(v.confidence < 0.75 for v in verdicts):
         return JuryResult(verdicts=verdicts, decision="human_approval", chosen_product_id=chosen_id)
@@ -200,7 +207,7 @@ def _heuristic_fuzzy_checks(
             deliv_reasons.append("Terminal stock: quantity estimated")
 
     # 3. Cost Juror
-    cost_dec, cost_reasons = check_budget(mandate, offer.total_eur)
+    cost_dec, cost_reasons = check_budget(mandate, offer.total_eur, offers=[offer])
     cost_conf = 0.96
     if cost_dec == "approve" and any("max_unit_price:" in c for c in need.extra_constraints):
         for c in need.extra_constraints:
@@ -214,10 +221,20 @@ def _heuristic_fuzzy_checks(
                         f"exceeds target {cap:.2f} EUR/{offer.comparison_unit}"
                     )
 
+    # 4. Sustainability Juror
+    sust_dec, sust_conf, sust_reasons = check_sustainability(mandate, need, offer, item)
+
     return (
         Verdict(juror="spec", decision=spec_dec, confidence=spec_conf, reasons=spec_reasons, model=model_name),
         Verdict(juror="delivery", decision=deliv_dec, confidence=deliv_conf, reasons=deliv_reasons, model=model_name),
         Verdict(juror="cost", decision=cost_dec, confidence=cost_conf, reasons=cost_reasons, model=model_name),
+        Verdict(
+            juror="sustainability",
+            decision=sust_dec,
+            confidence=sust_conf,
+            reasons=sust_reasons,
+            model=model_name,
+        ),
     )
 
 
@@ -227,26 +244,35 @@ def _evaluate_lines_heuristic(
     offers: list[Offer],
     catalog_items: dict[str, CatalogItem] | None,
     model_name: str,
-) -> tuple[Verdict, Verdict, Verdict]:
+) -> tuple[Verdict, Verdict, Verdict, Verdict]:
     if not offers:
         return (
             Verdict(juror="spec", decision="reject", confidence=1.0, reasons=["No offers provided"], model=model_name),
             Verdict(juror="delivery", decision="reject", confidence=1.0, reasons=["No offers provided"], model=model_name),
             Verdict(juror="cost", decision="reject", confidence=1.0, reasons=["No offers provided"], model=model_name),
+            Verdict(
+                juror="sustainability",
+                decision="reject",
+                confidence=1.0,
+                reasons=["No offers provided"],
+                model=model_name,
+            ),
         )
 
     spec_verdicts: list[Verdict] = []
     deliv_verdicts: list[Verdict] = []
     cost_verdicts: list[Verdict] = []
+    sust_verdicts: list[Verdict] = []
     for o in offers:
         item = (catalog_items or {}).get(o.product_id)
-        vs, vd, vc = _heuristic_fuzzy_checks(mandate, need, o, item, model_name)
+        vs, vd, vc, vsust = _heuristic_fuzzy_checks(mandate, need, o, item, model_name)
         spec_verdicts.append(vs)
         deliv_verdicts.append(vd)
         cost_verdicts.append(vc)
+        sust_verdicts.append(vsust)
 
     total_eur = round(sum(o.total_eur for o in offers), 2)
-    b_dec, b_reasons = check_budget(mandate, total_eur)
+    b_dec, b_reasons = check_budget(mandate, total_eur, offers=offers)
     cost_decisions = [b_dec, *[v.decision for v in cost_verdicts]]
     extra_cost_reasons = [
         r for v in cost_verdicts for r in v.reasons if "Comparison price" in r
@@ -272,6 +298,13 @@ def _evaluate_lines_heuristic(
             decision=_merge_decisions(cost_decisions),
             confidence=min(v.confidence for v in cost_verdicts),
             reasons=list(dict.fromkeys([*b_reasons, *extra_cost_reasons])),
+            model=model_name,
+        ),
+        Verdict(
+            juror="sustainability",
+            decision=_merge_decisions([v.decision for v in sust_verdicts]),
+            confidence=min(v.confidence for v in sust_verdicts),
+            reasons=list(dict.fromkeys(r for v in sust_verdicts for r in v.reasons)),
             model=model_name,
         ),
     )
@@ -322,7 +355,9 @@ def evaluate_with_gemini_decision(
     prompt_text = _format_case_input(mandate, need, offers, catalog_items)
     est_input_tokens = max(120, len(prompt_text) // 4)
 
-    h_spec, h_deliv, h_cost = _evaluate_lines_heuristic(mandate, need, offers, catalog_items, model_name)
+    h_spec, h_deliv, h_cost, h_sust = _evaluate_lines_heuristic(
+        mandate, need, offers, catalog_items, model_name
+    )
     used_live = False  # True only when the Decisions API answered and its answers were merged
 
     if live_api and tier0.decision != "reject":
@@ -376,6 +411,25 @@ def evaluate_with_gemini_decision(
                                 "reject": "Exceeds budget_per_order_eur or invalid line total math.",
                             },
                         },
+                        "sustainability": {
+                            "type": "choice",
+                            "instructions": (
+                                "Evaluate sustainability & origin: domestic Finnish sourcing (FI), eco/origin "
+                                "certifications (Hyvaa Suomesta Blue Swan, Avainlippu, EU Organic/Luomu, Nordic Swan, "
+                                "MSC, Fairtrade), carbon intensity, and cold-chain storage profile."
+                            ),
+                            "criteria": {
+                                "approve": (
+                                    "Meets sustainability expectations (domestic FI origin, eco-certified, or standard "
+                                    "catalog item when no explicit domestic/organic constraint is violated)."
+                                ),
+                                "escalate": (
+                                    "Buyer explicitly requested domestic/Finnish or organic/eco-certified in extra_constraints "
+                                    "and the product does not meet it, or ambient UHT is offered for fresh chilled constraint."
+                                ),
+                                "reject": "Explicitly banned origin or certification violation under strict mandate.",
+                            },
+                        },
                     },
                 )
                 if getattr(resp, "usage", None) and getattr(resp.usage, "total_input_tokens", None):
@@ -383,6 +437,7 @@ def evaluate_with_gemini_decision(
                 ans_spec = resp.answers.get("spec")
                 ans_deliv = resp.answers.get("delivery")
                 ans_cost = resp.answers.get("cost")
+                ans_sust = resp.answers.get("sustainability")
                 if ans_spec and getattr(ans_spec, "choice", None) in ("approve", "escalate", "reject"):
                     h_spec = h_spec.model_copy(
                         update={
@@ -404,16 +459,33 @@ def evaluate_with_gemini_decision(
                             "confidence": round(float(getattr(ans_cost, "confidence", h_cost.confidence)), 3),
                         }
                     )
+                if ans_sust and getattr(ans_sust, "choice", None) in ("approve", "escalate", "reject"):
+                    # Sustainability is advisory unless check_sustainability flagged an explicit constraint violation
+                    sust_choice = ans_sust.choice if h_sust.decision != "approve" else "approve"
+                    sust_conf = round(
+                        max(0.80, float(getattr(ans_sust, "confidence", h_sust.confidence)))
+                        if sust_choice == "approve"
+                        else float(getattr(ans_sust, "confidence", h_sust.confidence)),
+                        3,
+                    )
+                    h_sust = h_sust.model_copy(
+                        update={
+                            "decision": _merge_decisions([h_sust.decision, sust_choice]),
+                            "confidence": sust_conf,
+                        }
+                    )
                 used_live = True
             except Exception as exc:
                 log.warning("gemini-decision-1 live call failed (%s); using calibrated fallback", exc)
 
     if not used_live:
         # make the fallback visible in the API response, not only in logs
-        h_spec, h_deliv, h_cost = (v.model_copy(update={"model": f"{model_name}/fallback"})
-                                   for v in (h_spec, h_deliv, h_cost))
+        h_spec, h_deliv, h_cost, h_sust = (
+            v.model_copy(update={"model": f"{model_name}/fallback"})
+            for v in (h_spec, h_deliv, h_cost, h_sust)
+        )
 
-    verdicts = [tier0, h_spec, h_deliv, h_cost]
+    verdicts = [tier0, h_spec, h_deliv, h_cost, h_sust]
     jury_res = aggregate_verdicts(mandate, offers, verdicts)
     if jury_res.decision == "human_approval":
         verdicts = _run_tier2_small_llm_panel(
@@ -531,12 +603,14 @@ def evaluate_with_generative_llm(
     est_input_tokens = max(180, len(prompt_text) // 4 + 80)
     est_output_tokens = 145
 
-    h_spec, h_deliv, h_cost = _evaluate_lines_heuristic(mandate, need, offers, catalog_items, model_name)
+    h_spec, h_deliv, h_cost, h_sust = _evaluate_lines_heuristic(
+        mandate, need, offers, catalog_items, model_name
+    )
 
     if live_api and tier0.decision != "reject":
         system_prompt = (
             "You are the Valio Aimo B2B Procurement Jury. Return ONLY a JSON object with keys "
-            "'spec', 'delivery', 'cost', each containing {'decision': 'approve'|'escalate'|'reject', "
+            "'spec', 'delivery', 'cost', 'sustainability', each containing {'decision': 'approve'|'escalate'|'reject', "
             "'confidence': float, 'reasons': [str]}."
         )
         text = ""
@@ -590,12 +664,20 @@ def evaluate_with_generative_llm(
             if m:
                 try:
                     parsed = json.loads(m.group(0))
-                    for j_key, base_v in (("spec", h_spec), ("delivery", h_deliv), ("cost", h_cost)):
+                    for j_key, base_v in (
+                        ("spec", h_spec),
+                        ("delivery", h_deliv),
+                        ("cost", h_cost),
+                        ("sustainability", h_sust),
+                    ):
                         if j_key in parsed and parsed[j_key].get("decision") in ("approve", "escalate", "reject"):
                             d = parsed[j_key]
+                            dec_val = d["decision"]
+                            if j_key == "sustainability" and base_v.decision == "approve":
+                                dec_val = "approve"
                             updated = base_v.model_copy(
                                 update={
-                                    "decision": d["decision"],
+                                    "decision": dec_val,
                                     "confidence": float(d.get("confidence", base_v.confidence)),
                                     "reasons": d.get("reasons") or base_v.reasons,
                                 }
@@ -604,12 +686,14 @@ def evaluate_with_generative_llm(
                                 h_spec = updated
                             elif j_key == "delivery":
                                 h_deliv = updated
-                            else:
+                            elif j_key == "cost":
                                 h_cost = updated
+                            else:
+                                h_sust = updated
                 except Exception:
                     pass
 
-    verdicts = [tier0, h_spec, h_deliv, h_cost]
+    verdicts = [tier0, h_spec, h_deliv, h_cost, h_sust]
     jury_res = aggregate_verdicts(mandate, offers, verdicts)
     if attach_tier2_summary and jury_res.decision == "human_approval":
         for idx, v in enumerate(verdicts):

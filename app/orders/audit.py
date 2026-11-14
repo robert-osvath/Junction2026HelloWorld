@@ -13,7 +13,17 @@ from app.db import connect_args, pooled
 from contracts import AuditEvent, AuditVerify
 
 GENESIS = "sha256:" + "0" * 64
-ACTORS = {"buyer-agent", "juror:tier0", "juror:spec", "juror:delivery", "juror:cost", "juror:tier2", "human", "aimo"}
+ACTORS = {
+    "buyer-agent",
+    "juror:tier0",
+    "juror:spec",
+    "juror:delivery",
+    "juror:cost",
+    "juror:sustainability",
+    "juror:tier2",
+    "human",
+    "aimo",
+}
 
 
 def _sha(obj) -> str:

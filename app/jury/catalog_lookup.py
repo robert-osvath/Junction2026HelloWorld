@@ -54,6 +54,9 @@ CURATED_CANDIDATES: list[CandidateRecord] = [
             allergens_contains=["AM"],
             allergens_may_contain=[],
             allergen_data=True,
+            country_of_origin="FI",
+            labels=["GOODS_FROM_FINLAND_BLUE_SWAN", "coolTemperature"],
+            temperature_condition=4,
         ),
         sales_unit="KI",
         content_per_sales_unit=20.0,
@@ -77,6 +80,9 @@ CURATED_CANDIDATES: list[CandidateRecord] = [
             allergens_contains=["AM"],
             allergens_may_contain=[],
             allergen_data=True,
+            country_of_origin="FI",
+            labels=["GOODS_FROM_FINLAND_BLUE_SWAN", "coolTemperature"],
+            temperature_condition=4,
         ),
         sales_unit="KI",
         content_per_sales_unit=10.0,
@@ -100,6 +106,9 @@ CURATED_CANDIDATES: list[CandidateRecord] = [
             allergens_contains=["AM"],
             allergens_may_contain=[],
             allergen_data=True,
+            country_of_origin="FI",
+            labels=["GOODS_FROM_FINLAND_BLUE_SWAN", "warmTemperature"],
+            temperature_condition=8,
         ),
         sales_unit="KI",
         content_per_sales_unit=12.0,
@@ -123,6 +132,9 @@ CURATED_CANDIDATES: list[CandidateRecord] = [
             allergens_contains=["AM"],
             allergens_may_contain=[],
             allergen_data=True,
+            country_of_origin="FI",
+            labels=["GOODS_FROM_FINLAND_BLUE_SWAN", "EU_ORGANIC_FARMING", "coolTemperature"],
+            temperature_condition=4,
         ),
         sales_unit="KI",
         content_per_sales_unit=10.0,
@@ -377,10 +389,24 @@ def _build_catalog_index() -> dict[str, CatalogItem]:
     for rec in CURATED_CANDIDATES:
         idx[rec.catalog.product_id] = rec.catalog
 
-    # Load contract fixture
+    # Load contract fixture (preserving curated sustainability fields if omitted in fixture)
     cat_fixture = FIXTURES_DIR / "catalog_item.json"
     if cat_fixture.exists():
         item = CatalogItem.model_validate_json(cat_fixture.read_text(encoding="utf-8"))
+        prev = idx.get(item.product_id)
+        if prev is not None:
+            item = item.model_copy(
+                update={
+                    "country_of_origin": item.country_of_origin or prev.country_of_origin,
+                    "labels": item.labels or prev.labels,
+                    "temperature_condition": (
+                        item.temperature_condition
+                        if item.temperature_condition is not None
+                        else prev.temperature_condition
+                    ),
+                    "co2_kg_per_kg": item.co2_kg_per_kg if item.co2_kg_per_kg is not None else prev.co2_kg_per_kg,
+                }
+            )
         idx[item.product_id] = item
 
     # Load benchmark fixture catalog items
@@ -421,7 +447,16 @@ def resolve_catalog_items(product_ids: list[str]) -> dict[str, CatalogItem]:
                 conn = store.connect(db_file)
                 try:
                     rows = store.offer_rows(conn, missing)
-                    details = store.item_details(conn, list(rows.keys()))
+                    found_ids = list(rows.keys())
+                    details = store.item_details(conn, found_ids)
+                    labels_by_id: dict[str, list[str]] = {pid: [] for pid in found_ids}
+                    if found_ids:
+                        marks = ",".join("?" * len(found_ids))
+                        for r in conn.execute(
+                            f"SELECT product_id, label FROM product_labels WHERE product_id IN ({marks}) ORDER BY label",
+                            found_ids,
+                        ):
+                            labels_by_id[str(r[0])].append(str(r[1]))
                     for pid, row in rows.items():
                         det = details.get(pid, {"claims": [], "contains": [], "may": []})
                         result[pid] = CatalogItem(
@@ -434,6 +469,10 @@ def resolve_catalog_items(product_ids: list[str]) -> dict[str, CatalogItem]:
                             allergens_contains=det["contains"],
                             allergens_may_contain=det["may"],
                             allergen_data=bool(row.get("has_allergen_data")),
+                            country_of_origin=(row.get("country_of_origin") or "").upper() or None,
+                            labels=labels_by_id.get(pid, []),
+                            temperature_condition=row.get("temperature_condition"),
+                            co2_kg_per_kg=row.get("co2_kg_per_kg"),
                         )
                 finally:
                     conn.close()

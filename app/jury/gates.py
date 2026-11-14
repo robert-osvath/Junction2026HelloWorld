@@ -19,7 +19,11 @@ def _to_utc(dt: datetime) -> datetime:
     return dt.astimezone(timezone.utc)
 
 
-def check_budget(mandate: Mandate, total_eur: float) -> tuple[str, list[str]]:
+def check_budget(
+    mandate: Mandate,
+    total_eur: float,
+    offers: list[Offer] | None = None,
+) -> tuple[str, list[str]]:
     """Check order total against hard budget and auto-approve threshold."""
     if not math.isfinite(total_eur) or total_eur < 0:
         return "reject", [f"Invalid order total: {total_eur}"]
@@ -29,13 +33,20 @@ def check_budget(mandate: Mandate, total_eur: float) -> tuple[str, list[str]]:
             [f"Total {total_eur:,.2f} EUR exceeds budget {mandate.budget_per_order_eur:,.2f} EUR"],
         )
     if total_eur > mandate.auto_approve_limit_eur:
-        return (
-            "escalate",
-            [
-                f"Total {total_eur:,.2f} EUR exceeds auto-approve limit "
-                f"{mandate.auto_approve_limit_eur:,.2f} EUR (within budget {mandate.budget_per_order_eur:,.2f} EUR)"
-            ],
-        )
+        reasons = [
+            f"Total {total_eur:,.2f} EUR exceeds auto-approve limit "
+            f"{mandate.auto_approve_limit_eur:,.2f} EUR (within budget {mandate.budget_per_order_eur:,.2f} EUR)"
+        ]
+        if offers and len(offers) == 1 and offers[0].unit_price_eur > 0:
+            o = offers[0]
+            max_units = int(mandate.auto_approve_limit_eur // o.unit_price_eur)
+            if max_units >= 1:
+                max_eur = round(max_units * o.unit_price_eur, 2)
+                reasons.append(
+                    f"Auto-approve remedy: <= {max_units} {o.sales_unit} ({max_eur:,.2f} EUR) "
+                    f"qualifies for instant auto-order"
+                )
+        return "escalate", reasons
     return (
         "approve",
         [f"Within auto-approve limit ({total_eur:,.2f} <= {mandate.auto_approve_limit_eur:,.2f} EUR)"],
@@ -149,6 +160,141 @@ def check_stock_evidence(offer: Offer) -> tuple[str, list[str]]:
     return "approve", []
 
 
+SUSTAINABILITY_LABEL_NAMES: dict[str, str] = {
+    "GOODS_FROM_FINLAND_BLUE_SWAN": "Hyvää Suomesta (Blue Swan)",
+    "MADE_IN_FINLAND_FLAG_WITH_KEY": "Avainlippu (Key Flag)",
+    "PUHTAASTI_KOTIMAINEN": "Puhtaasti Kotimainen",
+    "EU_ORGANIC_FARMING": "EU Organic",
+    "OFFICIAL_ECO_LABEL_SUN": "Luomu (Sun Eco-Label)",
+    "SOIL_ASSOCIATION_ORGANIC_SYMBOL": "Soil Association Organic",
+    "SVANEN": "Nordic Swan Ecolabel",
+    "EU_ECO_LABEL": "EU Ecolabel",
+    "KRAV_MARK": "KRAV Organic",
+    "RAINFOREST_ALLIANCE": "Rainforest Alliance",
+    "UTZ_CERTIFIED": "UTZ Certified",
+    "MARINE_STEWARDSHIP_COUNCIL_LABEL": "MSC Sustainable Fishery",
+    "AQUACULTURE_STEWARDSHIP_COUNCIL": "ASC Responsible Aquaculture",
+    "DOLPHIN_SAFE": "Dolphin Safe",
+    "FAIR_TRADE_MARK": "Fairtrade",
+    "FINNISH_HEART_SYMBOL": "Finnish Heart Symbol",
+}
+
+_FINNISH_VENDOR_PREFIXES = (
+    "VALIO",
+    "FAZER",
+    "ATRIA",
+    "HK ",
+    "HKSCAN",
+    "SAARIOINEN",
+    "RAVINTORAISIO",
+    "RAISIO",
+    "SNELLMAN",
+    "JUUSTOPORTTI",
+    "MAITOMAA",
+    "PAULIG",
+    "MEIRA",
+    "APETIT",
+    "MYLLYN PARAS",
+)
+
+
+def check_sustainability(
+    mandate: Mandate,
+    need: Need,
+    offer: Offer,
+    item: CatalogItem | None = None,
+) -> tuple[str, float, list[str]]:
+    """Evaluate sustainability, domestic origin, eco-certifications, CO2 intensity, and cold-chain profile.
+
+    Acts as an advisory & policy-aware juror:
+    - Approves with high confidence when domestic Finnish origin (FI) or eco-certifications are verified.
+    - Escalates when the buyer explicitly requires domestic/organic/eco attributes in `need.extra_constraints`
+      or `mandate.required_claims` that the product does not meet, or when ambient UHT is offered for
+      an explicit fresh/chilled constraint.
+    """
+    reasons: list[str] = []
+    origin = ((item.country_of_origin if item else None) or "").strip().upper()
+    if not origin:
+        vendor_upper = ((item.vendor_name if item else None) or "").upper()
+        name_upper = offer.name.upper()
+        if any(vendor_upper.startswith(p) for p in _FINNISH_VENDOR_PREFIXES) or "VALIO" in name_upper:
+            origin = "FI"
+
+    labels = set(item.labels if item and item.labels else [])
+    claims = set(item.claims if item and item.claims else [])
+    if origin == "FI" or "GOODS_FROM_FINLAND_BLUE_SWAN" in labels or "MADE_IN_FINLAND_FLAG_WITH_KEY" in labels:
+        origin = "FI"
+        reasons.append("Origin: FI (domestic Finnish sourcing, low food-miles)")
+    elif origin in ("SE", "EE", "DK", "NO"):
+        reasons.append(f"Origin: {origin} (Nordic/Baltic regional sourcing)")
+    elif origin:
+        reasons.append(f"Origin: {origin} (imported supply chain)")
+    else:
+        reasons.append("Origin: domestic/EU wholesale catalog")
+
+    cert_badges: list[str] = []
+    for lbl in sorted(labels):
+        if lbl in SUSTAINABILITY_LABEL_NAMES:
+            cert_badges.append(SUSTAINABILITY_LABEL_NAMES[lbl])
+    if "ORGANIC" in claims and "EU Organic" not in cert_badges:
+        cert_badges.append("Organic (Luomu)")
+    if cert_badges:
+        reasons.append(f"Certifications: {', '.join(cert_badges)}")
+
+    if item and item.co2_kg_per_kg is not None and math.isfinite(item.co2_kg_per_kg):
+        reasons.append(f"Carbon footprint: {item.co2_kg_per_kg:.2f} kg CO2e/kg")
+
+    temp = item.temperature_condition if item else None
+    is_uht = "uht" in offer.name.lower() or "warmTemperature" in labels or temp in (7, 8, 9)
+    if "freezeTemperature" in labels or temp in (1, 2):
+        reasons.append("Cold-chain: frozen storage (-18 °C)")
+    elif is_uht:
+        reasons.append("Storage: ambient / UHT (zero refrigeration energy)")
+    elif "coolTemperature" in labels or temp in (3, 4, 5) or "milk" in offer.name.lower() or "cream" in offer.name.lower():
+        reasons.append("Cold-chain: chilled (+2..+6 °C)")
+
+    constraints_lower = " ".join([*need.extra_constraints, *mandate.required_claims]).lower()
+    wants_domestic = any(
+        k in constraints_lower for k in ("domestic", "finnish", "kotimainen", "origin:fi", "origin_fi", "suomi")
+    )
+    wants_organic = any(k in constraints_lower for k in ("organic", "luomu", "eu_organic"))
+    wants_fresh_chilled = any(k in constraints_lower for k in ("fresh_chilled", "chilled_only", "no_uht"))
+
+    if wants_domestic and origin != "FI":
+        return (
+            "escalate",
+            0.68,
+            [f"Buyer requested domestic Finnish origin (FI), but product origin is {origin or 'non-FI'}", *reasons],
+        )
+
+    is_organic = (
+        "ORGANIC" in claims
+        or "EU_ORGANIC_FARMING" in labels
+        or "OFFICIAL_ECO_LABEL_SUN" in labels
+        or "KRAV_MARK" in labels
+        or "luomu" in offer.name.lower()
+    )
+    if wants_organic and not is_organic:
+        return (
+            "escalate",
+            0.68,
+            ["Buyer requested organic (Luomu) certification, which is not declared on this SKU", *reasons],
+        )
+
+    if wants_fresh_chilled and is_uht:
+        return (
+            "escalate",
+            0.70,
+            ["Ambient UHT product offered where fresh chilled dairy was requested", *reasons],
+        )
+
+    if origin == "FI" and cert_badges:
+        return "approve", 0.96, reasons
+    if origin == "FI" or cert_badges:
+        return "approve", 0.92, reasons
+    return "approve", 0.84, reasons
+
+
 def evaluate_tier0(
     mandate: Mandate,
     need: Need,
@@ -170,7 +316,7 @@ def evaluate_tier0(
     reasons: list[str] = []
 
     total_eur = round(sum(o.total_eur for o in offers), 2)
-    b_dec, b_reasons = check_budget(mandate, total_eur)
+    b_dec, b_reasons = check_budget(mandate, total_eur, offers=offers)
     decisions.append(b_dec)
     reasons.extend(b_reasons)
 

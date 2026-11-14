@@ -119,12 +119,36 @@ def _score_candidate(
     reliability = cand_offer.evidence.reliability if cand_offer.evidence.reliability is not None else 0.80
     reliability_score = max(0.0, min(1.0, reliability))
 
+    # 5. Sustainability, domestic origin (FI), & cold-chain match (0..1)
+    labels = set(rec.catalog.labels or [])
+    origin = (rec.catalog.country_of_origin or "").upper()
+    if not origin and ("VALIO" in (rec.catalog.vendor_name or "").upper() or "VALIO" in cand_offer.name.upper()):
+        origin = "FI"
+    is_domestic = origin == "FI" or "GOODS_FROM_FINLAND_BLUE_SWAN" in labels or "MADE_IN_FINLAND_FLAG_WITH_KEY" in labels
+    is_organic = "ORGANIC" in cand_claims or "EU_ORGANIC_FARMING" in labels or "OFFICIAL_ECO_LABEL_SUN" in labels
+    is_uht = "uht" in cand_offer.name.lower() or "warmTemperature" in labels
+    sust_score = 0.50
+    sust_tags: list[str] = []
+    if is_domestic:
+        sust_score += 0.30
+        sust_tags.append("FI")
+    if is_organic:
+        sust_score += 0.15
+        sust_tags.append("Organic")
+    elif "GOODS_FROM_FINLAND_BLUE_SWAN" in labels:
+        sust_score += 0.10
+        sust_tags.append("Blue Swan")
+    if is_uht:
+        sust_tags.append("ambient UHT")
+    sust_score = min(1.0, sust_score)
+
     explicit_bonus = 0.08 if is_explicit else 0.0
     composite = (
-        0.35 * claim_score
-        + 0.25 * price_score
-        + 0.25 * delivery_score
-        + 0.15 * reliability_score
+        0.32 * claim_score
+        + 0.24 * price_score
+        + 0.23 * delivery_score
+        + 0.13 * reliability_score
+        + 0.08 * sust_score
         + explicit_bonus
     )
 
@@ -137,7 +161,8 @@ def _score_candidate(
     )
     rule_str = "explicit rule" if is_explicit else "same-category match"
     rel_str = f"{reliability * 100:.0f}% rel" if cand_offer.evidence.reliability is not None else "est. rel"
-    tradeoff = f"{rule_str}, {price_str}, {cand_offer.evidence.stock} stock, {rel_str}"
+    sust_str = f", {' · '.join(sust_tags)}" if sust_tags else ""
+    tradeoff = f"{rule_str}, {price_str}, {cand_offer.evidence.stock} stock, {rel_str}{sust_str}"
 
     return round(composite, 4), tradeoff
 

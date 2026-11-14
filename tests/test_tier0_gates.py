@@ -361,3 +361,54 @@ def test_adversarial_empty_offers_in_jurors() -> None:
     assert metrics.result.decision == "reject"
     assert metrics.result.chosen_product_id is None
 
+
+def test_sustainability_juror_approves_finnish_blue_swan() -> None:
+    """Domestic FI product with Hyvää Suomesta Blue Swan label approves with high confidence."""
+    from app.jury.gates import check_sustainability
+
+    cat = _catalog(
+        country_of_origin="FI",
+        labels=["GOODS_FROM_FINLAND_BLUE_SWAN", "coolTemperature"],
+        temperature_condition=4,
+    )
+    dec, conf, reasons = check_sustainability(_mandate(), _need(), _offer(), cat)
+    assert dec == "approve"
+    assert conf >= 0.95
+    joined = " | ".join(reasons)
+    assert "Origin: FI" in joined
+    assert "Hyvää Suomesta (Blue Swan)" in joined
+    assert "chilled" in joined
+
+
+def test_sustainability_juror_escalates_on_explicit_domestic_or_organic_mismatch() -> None:
+    """If buyer explicitly requires domestic FI or organic (Luomu) and SKU does not match, sustainability escalates."""
+    from app.jury.gates import check_sustainability
+    from app.jury.jurors import evaluate_with_gemini_decision
+
+    imported_cat = _catalog(
+        product_id="999001",
+        vendor_name="IMPORTED DAIRY GMBH",
+        country_of_origin="DE",
+        labels=["coolTemperature"],
+    )
+    imported_offer = _offer(product_id="999001", name="Imported Semi-Skimmed Milk 10L")
+    domestic_need = _need(extra_constraints=["domestic_finnish_only"])
+
+    dec, conf, reasons = check_sustainability(_mandate(), domestic_need, imported_offer, imported_cat)
+    assert dec == "escalate"
+    assert conf < 0.75
+    assert "domestic Finnish origin" in reasons[0]
+
+    metrics = evaluate_with_gemini_decision(
+        _mandate(),
+        domestic_need,
+        [imported_offer],
+        catalog_items={"999001": imported_cat},
+        live_api=False,
+    )
+    assert metrics.result.decision == "human_approval"
+    sust_v = next(v for v in metrics.result.verdicts if v.juror == "sustainability")
+    assert sust_v.decision == "escalate"
+    assert any("Tier 2 escalation summary" in r for r in sust_v.reasons)
+
+

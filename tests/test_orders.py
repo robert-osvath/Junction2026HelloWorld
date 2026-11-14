@@ -37,11 +37,12 @@ def test_happy_path_places_and_audits():
     r = place()
     assert r.status_code == 200
     o = r.json()
-    assert o["status"] == "placed" and o["confirmation_no"].startswith("AIMO-SIM-") and len(o["verdicts"]) == 4
+    assert o["status"] == "placed" and o["confirmation_no"].startswith("AIMO-SIM-") and len(o["verdicts"]) == 5
     assert o["id"].startswith("order-") and len(o["id"]) == 18
     assert actions(o["id"]) == [("buyer-agent", "order.requested"), ("juror:tier0", "verdict.approve"),
                                 ("juror:spec", "verdict.approve"), ("juror:delivery", "verdict.approve"),
-                                ("juror:cost", "verdict.approve"), ("aimo", "order.placed")]
+                                ("juror:cost", "verdict.approve"), ("juror:sustainability", "verdict.approve"),
+                                ("aimo", "order.placed")]
     assert c.get("/audit/verify").json()["ok"] is True
     assert c.get(f"/orders/{o['id']}").json() == o
 
@@ -115,8 +116,12 @@ def test_vimo_mandate_survives_restart():
     import importlib
 
     import app.orders.mandates as mandates
+    orig = mandates.MANDATES
     fresh = importlib.reload(mandates).MANDATES  # as after a restart, before any cockpit draft
-    assert fresh["mandate-vimo-live"].auto_approve_limit_eur == 500.0
+    orig.clear()
+    orig.update(fresh)
+    mandates.MANDATES = orig
+    assert orig["mandate-vimo-live"].auto_approve_limit_eur == 500.0
 
 
 def test_invalid_transitions_409():
@@ -126,7 +131,7 @@ def test_invalid_transitions_409():
         r = c.post(f"/orders/{oid}/{verb}")
         assert r.status_code == 409 and "cannot" in r.text
     assert c.get(f"/orders/{placed}").json()["status"] == "placed"
-    assert len(actions(placed)) == 6  # refused transitions leave no audit event
+    assert len(actions(placed)) == 7  # refused transitions leave no audit event
 
 
 def test_404s():
