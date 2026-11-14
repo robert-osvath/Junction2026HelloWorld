@@ -196,3 +196,8 @@ def test_name_size_beats_conflicting_packaging_weight():
     assert content_per_sales_unit(raw, ["Salad 5 kg"]) == (6.0, "KG", 1)
     # no size in the name: packaging figure kept, but unconfirmed
     assert content_per_sales_unit(raw, ["Salad bowl"]) == (6.0, "KG", 0)
+
+
+@pytest.mark.parametrize("name", ["PUMPKIN 7-9kg/pcs", "Kala 10-20 kg", "Herne 200-300G", "Juoma 1 – 2 l"])
+def test_size_ranges_are_not_pack_sizes(name):
+    assert parse_name_content(name) is None

@@ -67,6 +67,8 @@ def parse_name_content(name: str | None) -> tuple[float, int, str] | None:
     for m in _SIZE.finditer(name):
         if re.search(r"\d\s*/\s*$", name[:m.start(2)]):
             return None  # "1/20 L" is a fraction or a ratio, not a size
+        if re.search(r"\d\s*[-–]\s*$", name[:m.start(2)]):
+            return None  # "7-9kg", "200-300G" is a range (variable weight), not a pack size
         count, num, unit = m.groups()
         kind, factor = _NAME_UNITS[unit.lower()]
         found.add((round(float(num.replace(",", ".")) * factor, 6), int(count or 1), kind))
