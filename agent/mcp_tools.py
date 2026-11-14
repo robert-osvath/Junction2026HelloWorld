@@ -65,7 +65,21 @@ class StdioMCPTools:
         result = await self._session.call_tool(name, payload)
         if result.isError:
             raise RuntimeError("MCP tool failed: " + "; ".join(getattr(item, "text", str(item)) for item in result.content))
-        text = next((item.text for item in result.content if hasattr(item, "text")), None)
-        if text is None:
-            raise RuntimeError(f"MCP tool {name} returned no text content")
-        return json.loads(text)
+        return decode_tool_result(name, result)
+
+
+def decode_tool_result(name: str, result: Any) -> Any:
+    """FastMCP returns a list result as ONE text item per element, plus structuredContent
+    {"result": [...]}; reading only the first text item silently truncated lists to their first element."""
+    structured = getattr(result, "structuredContent", None)
+    if isinstance(structured, dict):
+        # FastMCP wraps only non-object returns as {"result": ...}; our list tools are the only such case,
+        # so unwrap lists only and never strip a dict tool's own "result" field
+        if set(structured) == {"result"} and isinstance(structured["result"], list):
+            return structured["result"]
+        return structured
+    texts = [item.text for item in result.content if hasattr(item, "text")]
+    if not texts:
+        raise RuntimeError(f"MCP tool {name} returned no text content")
+    parsed = [json.loads(t) for t in texts]
+    return parsed[0] if len(parsed) == 1 else parsed

@@ -14,6 +14,10 @@ from typing import Any, Awaitable, Callable, Protocol
 
 import httpx
 
+# `python scripts/demo_runner.py` puts scripts/ on sys.path, not the repo root: make `agent` importable
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
 HAPPY_REQUEST = "1,000 L lactose-free milk by Monday"
 STOCK_OUT_REQUEST = "1,000 L lactose-free milk by Monday; first choice is out of stock"
@@ -128,6 +132,14 @@ async def main() -> None:
             outcomes = await run_demo(MCPBuyerAgent(tools), approve, verify)
         for outcome in outcomes:
             print(f"{outcome.scenario}: {outcome.order_id} {outcome.status}")
+        # T11 spec: the over-budget scenario ends with the audit log shown
+        over_budget = next(o for o in outcomes if o.scenario == "over-budget")
+        async with httpx.AsyncClient(base_url=base_url, timeout=30.0) as client:
+            response = await client.get("/audit", params={"order_id": over_budget.order_id})
+            response.raise_for_status()
+        print(f"audit log for {over_budget.order_id}:")
+        for event in response.json():
+            print(f"  {event['ts']}  {event['actor']:<12} {event['action']:<20} {event['human_summary']}")
     finally:
         if process is not None and process.returncode is None:
             process.terminate()
