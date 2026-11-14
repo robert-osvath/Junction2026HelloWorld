@@ -10,12 +10,15 @@ Supports:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import time
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
+
+from dotenv import dotenv_values
 
 from app.jury.gates import (
     _merge_decisions,
@@ -30,6 +33,7 @@ from app.jury.gates import (
 )
 from contracts import CatalogItem, JuryResult, Mandate, Need, Offer, Verdict
 
+log = logging.getLogger(__name__)
 OverallDecision = Literal["auto_order", "human_approval", "substitutes", "reject"]
 
 # Published / benchmark pricing per 1M tokens (USD) for T8 cost comparison
@@ -265,6 +269,22 @@ def _evaluate_lines_heuristic(
     )
 
 
+def _get_env_key(*names: str) -> str:
+    for n in names:
+        val = os.getenv(n)
+        if val:
+            return val.strip()
+    try:
+        vals = dotenv_values(".env")
+        for n in names:
+            val = vals.get(n)
+            if val:
+                return val.strip()
+    except Exception:
+        pass
+    return ""
+
+
 def evaluate_with_gemini_decision(
     mandate: Mandate,
     need: Need,
@@ -282,75 +302,75 @@ def evaluate_with_gemini_decision(
 
     h_spec, h_deliv, h_cost = _evaluate_lines_heuristic(mandate, need, offers, catalog_items, model_name)
 
-    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-    if live_api and api_key:
-        try:
-            from google import genai
+    if live_api and tier0.decision != "reject":
+        api_key = _get_env_key("GEMINI_API_KEY", "GOOGLE_API_KEY")
+        if api_key.startswith("AIza"):
+            try:
+                from google import genai
 
-            client = genai.Client(api_key=api_key, http_options={"api_version": "v1beta"})
-            resp = client.decisions.create(
-                model="gemini-decision-1",
-                input=prompt_text,
-                questions={
-                    "spec": {
-                        "type": "choice",
-                        "instructions": (
-                            "Evaluate specification fit: product intent, dietary claims, GS1 allergens, "
-                            "and packaging suitability for the buyer."
-                        ),
-                        "criteria": {
-                            "approve": "Exact match or functionally equivalent substitute with compatible packaging and verified claims.",
-                            "escalate": "Fuzzy substitute (packaging format change, plant-based swap, or missing allergen declaration) needing human sign-off.",
-                            "reject": "Wrong product, violates required claims or banned allergens, or ruins recipe.",
+                client = genai.Client(api_key=api_key, http_options={"api_version": "v1beta"})
+                resp = client.decisions.create(
+                    model="gemini-decision-1",
+                    input=prompt_text,
+                    questions={
+                        "spec": {
+                            "type": "choice",
+                            "instructions": (
+                                "Evaluate specification fit: product intent, dietary claims, GS1 allergens, "
+                                "and packaging suitability for the buyer."
+                            ),
+                            "criteria": {
+                                "approve": "Exact match or functionally equivalent substitute with compatible packaging and verified claims.",
+                                "escalate": "Fuzzy substitute (packaging format change, plant-based swap, or missing allergen declaration) needing human sign-off.",
+                                "reject": "Wrong product, violates required claims or banned allergens, or ruins recipe.",
+                            },
+                        },
+                        "delivery": {
+                            "type": "choice",
+                            "instructions": "Evaluate delivery readiness: available_date vs deliver_by, sales_block, stock evidence, and reliability.",
+                            "criteria": {
+                                "approve": "Arrives on or before deadline, not sales-blocked, with acceptable stock/reliability.",
+                                "escalate": "Low delivery reliability (<0.75) or unverified Terminal stock for critical hospital buyer.",
+                                "reject": "Available after deadline, sales-blocked, out of stock, or past closing_time.",
+                            },
+                        },
+                        "cost": {
+                            "type": "choice",
+                            "instructions": "Evaluate total_eur and comparison_price_eur against auto_approve_limit_eur and budget_per_order_eur.",
+                            "criteria": {
+                                "approve": "Within auto_approve_limit_eur and reasonable unit comparison price.",
+                                "escalate": "Above auto_approve_limit_eur but within budget_per_order_eur, or price premium over target.",
+                                "reject": "Exceeds budget_per_order_eur or invalid line total math.",
+                            },
                         },
                     },
-                    "delivery": {
-                        "type": "choice",
-                        "instructions": "Evaluate delivery readiness: available_date vs deliver_by, sales_block, stock evidence, and reliability.",
-                        "criteria": {
-                            "approve": "Arrives on or before deadline, not sales-blocked, with acceptable stock/reliability.",
-                            "escalate": "Low delivery reliability (<0.75) or unverified Terminal stock for critical hospital buyer.",
-                            "reject": "Available after deadline, sales-blocked, out of stock, or past closing_time.",
-                        },
-                    },
-                    "cost": {
-                        "type": "choice",
-                        "instructions": "Evaluate total_eur and comparison_price_eur against auto_approve_limit_eur and budget_per_order_eur.",
-                        "criteria": {
-                            "approve": "Within auto_approve_limit_eur and reasonable unit comparison price.",
-                            "escalate": "Above auto_approve_limit_eur but within budget_per_order_eur, or price premium over target.",
-                            "reject": "Exceeds budget_per_order_eur or invalid line total math.",
-                        },
-                    },
-                },
-            )
-            ans_spec = resp.answers.get("spec")
-            ans_deliv = resp.answers.get("delivery")
-            ans_cost = resp.answers.get("cost")
-            if ans_spec and getattr(ans_spec, "choice", None) in ("approve", "escalate", "reject"):
-                h_spec = h_spec.model_copy(
-                    update={
-                        "decision": ans_spec.choice,
-                        "confidence": round(float(getattr(ans_spec, "confidence", h_spec.confidence)), 3),
-                    }
                 )
-            if ans_deliv and getattr(ans_deliv, "choice", None) in ("approve", "escalate", "reject"):
-                h_deliv = h_deliv.model_copy(
-                    update={
-                        "decision": ans_deliv.choice,
-                        "confidence": round(float(getattr(ans_deliv, "confidence", h_deliv.confidence)), 3),
-                    }
-                )
-            if ans_cost and getattr(ans_cost, "choice", None) in ("approve", "escalate", "reject"):
-                h_cost = h_cost.model_copy(
-                    update={
-                        "decision": ans_cost.choice,
-                        "confidence": round(float(getattr(ans_cost, "confidence", h_cost.confidence)), 3),
-                    }
-                )
-        except Exception:
-            # Fall back cleanly to calibrated heuristic verdicts if network/endpoint unavailable
-            pass
+                ans_spec = resp.answers.get("spec")
+                ans_deliv = resp.answers.get("delivery")
+                ans_cost = resp.answers.get("cost")
+                if ans_spec and getattr(ans_spec, "choice", None) in ("approve", "escalate", "reject"):
+                    h_spec = h_spec.model_copy(
+                        update={
+                            "decision": ans_spec.choice,
+                            "confidence": round(float(getattr(ans_spec, "confidence", h_spec.confidence)), 3),
+                        }
+                    )
+                if ans_deliv and getattr(ans_deliv, "choice", None) in ("approve", "escalate", "reject"):
+                    h_deliv = h_deliv.model_copy(
+                        update={
+                            "decision": ans_deliv.choice,
+                            "confidence": round(float(getattr(ans_deliv, "confidence", h_deliv.confidence)), 3),
+                        }
+                    )
+                if ans_cost and getattr(ans_cost, "choice", None) in ("approve", "escalate", "reject"):
+                    h_cost = h_cost.model_copy(
+                        update={
+                            "decision": ans_cost.choice,
+                            "confidence": round(float(getattr(ans_cost, "confidence", h_cost.confidence)), 3),
+                        }
+                    )
+            except Exception as exc:
+                log.warning("gemini-decision-1 live call failed (%s); using calibrated fallback", exc)
 
     verdicts = [tier0, h_spec, h_deliv, h_cost]
     jury_res = aggregate_verdicts(mandate, offers, verdicts)
@@ -366,13 +386,22 @@ def evaluate_with_gemini_decision(
         jury_res = jury_res.model_copy(update={"verdicts": verdicts})
     latency_ms = (time.perf_counter() - t0) * 1000.0
     in_rate, _ = MODEL_PRICING_PER_1M[model_name]
-    cost_usd = (est_input_tokens / 1_000_000) * in_rate  # 0 output tokens!
+    cost_usd = 0.0 if tier0.decision == "reject" else (est_input_tokens / 1_000_000) * in_rate  # 0 output tokens!
+
+    log.info(
+        "jury.evaluate model=%s mandate=%s decision=%s latency_ms=%.2f verdicts=%s",
+        model_name,
+        mandate.id,
+        jury_res.decision,
+        latency_ms,
+        [(v.juror, v.decision, v.confidence) for v in jury_res.verdicts],
+    )
 
     return EvaluationMetrics(
         result=jury_res,
         model=model_name,
         latency_ms=round(latency_ms, 2),
-        input_tokens=est_input_tokens,
+        input_tokens=0 if tier0.decision == "reject" else est_input_tokens,
         output_tokens=0,
         cost_usd=cost_usd,
         escalated_to_tier2=(jury_res.decision == "human_approval"),
@@ -397,26 +426,53 @@ def evaluate_with_generative_llm(
 
     h_spec, h_deliv, h_cost = _evaluate_lines_heuristic(mandate, need, offers, catalog_items, model_name)
 
-    if live_api and model_name.startswith("gemini"):
-        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-        if api_key:
-            try:
-                from google import genai
+    if live_api and tier0.decision != "reject":
+        system_prompt = (
+            "You are the Valio Aimo B2B Procurement Jury. Return ONLY a JSON object with keys "
+            "'spec', 'delivery', 'cost', each containing {'decision': 'approve'|'escalate'|'reject', "
+            "'confidence': float, 'reasons': [str]}."
+        )
+        text = ""
+        if model_name.startswith("gemini"):
+            api_key = _get_env_key("GEMINI_API_KEY", "GOOGLE_API_KEY")
+            if api_key.startswith("AIza"):
+                try:
+                    from google import genai
 
-                client = genai.Client(api_key=api_key)
-                interaction = client.interactions.create(
-                    model=model_name,
-                    system_instruction=(
-                        "You are the Valio Aimo B2B Procurement Jury. Return ONLY a JSON object with keys "
-                        "'spec', 'delivery', 'cost', each containing {'decision': 'approve'|'escalate'|'reject', "
-                        "'confidence': float, 'reasons': [str]}."
-                    ),
-                    input=prompt_text,
-                    generation_config={"temperature": 0.0},
-                )
-                text = interaction.output_text or ""
-                m = re.search(r"\{.*\}", text, re.DOTALL)
-                if m:
+                    client = genai.Client(api_key=api_key)
+                    interaction = client.interactions.create(
+                        model=model_name,
+                        system_instruction=system_prompt,
+                        input=prompt_text,
+                        generation_config={"temperature": 0.0},
+                    )
+                    text = interaction.output_text or ""
+                except Exception as exc:
+                    log.warning("%s live call failed (%s); using fallback", model_name, exc)
+        elif model_name.startswith("claude"):
+            ant_key = _get_env_key("ANTHROPIC_API_KEY")
+            if ant_key:
+                try:
+                    import anthropic
+
+                    client = anthropic.Anthropic(api_key=ant_key)
+                    msg = client.messages.create(
+                        model=model_name,
+                        max_tokens=300,
+                        temperature=0.0,
+                        system=system_prompt,
+                        messages=[{"role": "user", "content": prompt_text}],
+                    )
+                    text = "".join(
+                        getattr(block, "text", "") for block in msg.content if getattr(block, "type", "") == "text"
+                    )
+                except Exception as exc:
+                    log.warning("%s live call failed (%s); using fallback", model_name, exc)
+
+        if text:
+            m = re.search(r"\{.*\}", text, re.DOTALL)
+            if m:
+                try:
                     parsed = json.loads(m.group(0))
                     for j_key, base_v in (("spec", h_spec), ("delivery", h_deliv), ("cost", h_cost)):
                         if j_key in parsed and parsed[j_key].get("decision") in ("approve", "escalate", "reject"):
@@ -434,8 +490,8 @@ def evaluate_with_generative_llm(
                                 h_deliv = updated
                             else:
                                 h_cost = updated
-            except Exception:
-                pass
+                except Exception:
+                    pass
 
     verdicts = [tier0, h_spec, h_deliv, h_cost]
     jury_res = aggregate_verdicts(mandate, offers, verdicts)
@@ -451,7 +507,21 @@ def evaluate_with_generative_llm(
         jury_res = jury_res.model_copy(update={"verdicts": verdicts})
     latency_ms = (time.perf_counter() - t0) * 1000.0
     in_rate, out_rate = MODEL_PRICING_PER_1M[model_name]
-    cost_usd = (est_input_tokens / 1_000_000) * in_rate + (est_output_tokens / 1_000_000) * out_rate
+    if tier0.decision == "reject":
+        est_input_tokens = 0
+        est_output_tokens = 0
+        cost_usd = 0.0
+    else:
+        cost_usd = (est_input_tokens / 1_000_000) * in_rate + (est_output_tokens / 1_000_000) * out_rate
+
+    log.info(
+        "jury.evaluate model=%s mandate=%s decision=%s latency_ms=%.2f verdicts=%s",
+        model_name,
+        mandate.id,
+        jury_res.decision,
+        latency_ms,
+        [(v.juror, v.decision, v.confidence) for v in jury_res.verdicts],
+    )
 
     return EvaluationMetrics(
         result=jury_res,

@@ -445,3 +445,79 @@ def resolve_catalog_items(product_ids: list[str]) -> dict[str, CatalogItem]:
 
 def get_candidate_records() -> dict[str, CandidateRecord]:
     return {r.catalog.product_id: r for r in CURATED_CANDIDATES}
+
+
+def discover_live_catalog_candidates(
+    product_id: str,
+    product_intent: str,
+    category: str | None,
+    required_claims: list[str],
+    banned_allergens: list[str],
+    need,
+) -> tuple[list[tuple[CatalogItem, Offer]], set[str]]:
+    """Query P1's SQLite catalog (`data/catalog.db`) + Valio Aimo Offer Builder (`T4`) when available.
+
+    Returns `(list of (CatalogItem, Offer), set of explicit_substitute_ids)`.
+    Safely returns `([], set())` when `data/catalog.db` or `VALIO_API_KEY` is not available.
+    """
+    import os
+
+    if os.getenv("PYTEST_CURRENT_TEST") or not os.getenv("VALIO_API_KEY"):
+        return [], set()
+
+    try:
+        from app.catalog import store
+        from app.catalog.aimo import get_client
+        from app.catalog.offers import get_offers
+        from app.catalog.search import search as catalog_search
+        from contracts import OffersRequest
+
+        db_file = store.db_path()
+        if not db_file.exists():
+            return [], set()
+
+        conn = store.connect(db_file)
+        try:
+            explicit_rows = conn.execute(
+                "SELECT substitute_id FROM substitutions WHERE product_id = ?",
+                (product_id,),
+            ).fetchall()
+            explicit_ids = {str(r[0]) for r in explicit_rows}
+
+            searched_items = catalog_search(
+                conn,
+                q=product_intent,
+                claims=",".join(required_claims),
+                exclude_allergens=",".join(banned_allergens),
+                category=category or "",
+                limit=15,
+                quantity=need.quantity,
+                unit=need.unit,
+            )
+            by_id: dict[str, CatalogItem] = {ci.product_id: ci for ci in searched_items}
+
+            missing_explicit = [pid for pid in explicit_ids if pid not in by_id]
+            if missing_explicit:
+                resolved = resolve_catalog_items(missing_explicit)
+                by_id.update(resolved)
+
+            cand_ids = [pid for pid in [*explicit_ids, *by_id.keys()] if pid != product_id]
+            if not cand_ids:
+                return [], explicit_ids
+
+            offers = get_offers(
+                conn,
+                get_client(),
+                OffersRequest(need=need, product_ids=cand_ids[:20], delivery_date=need.deliver_by),
+            )
+            paired: list[tuple[CatalogItem, Offer]] = []
+            for off in offers:
+                ci = by_id.get(off.product_id)
+                if ci is not None:
+                    paired.append((ci, off))
+            return paired, explicit_ids
+        finally:
+            conn.close()
+    except Exception:
+        return [], set()
+

@@ -13,10 +13,10 @@ We evaluated **20 Valio Aimo® foodservice procurement and substitution cases** 
 
 | Model | Architecture | Gold Agreement (%) | Agreement vs Sonnet (%) | Safety False-Approve Rate (%) | Avg Latency (ms) | Avg Input / Output Tokens | Cost / 1,000 Evaluations ($) |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **`gemini-decision-1`** | Tier 0 Gates + Calibrated Decision API (`0` output tokens) | **100.0%** (20/20) | **100.0%** (20/20) | **0.0%** (0/6) | 120.7 ms | 409 / 0 | **$0.0306** |
-| **`gemini-3.5-flash-lite`** | Tier 0 Gates + Fast Generative JSON | **100.0%** (20/20) | **100.0%** (20/20) | **0.0%** (0/6) | 286.4 ms | 489 / 145 | **$0.1069** |
-| **`claude-haiku-4-5`** | Tier 0 Gates + Fast Generative JSON | **100.0%** (20/20) | **100.0%** (20/20) | **0.0%** (0/6) | 448.9 ms | 489 / 145 | **$0.9709** |
-| **`claude-sonnet-4-5`** | Tier 0 Gates + Frontier Baseline JSON | **100.0%** (20/20) | **100.0%** (20/20) | **0.0%** (0/6) | 1092.4 ms | 489 / 145 | **$3.6408** |
+| **`gemini-decision-1`** | Tier 0 Gates + Calibrated Decision API (`0` output tokens) | **100.0%** (20/20) | **100.0%** (20/20) | **0.0%** (0/6) | 120.7 ms | 267 / 0 | **$0.0200** |
+| **`gemini-3.5-flash-lite`** | Tier 0 Gates + Fast Generative JSON | **100.0%** (20/20) | **100.0%** (20/20) | **0.0%** (0/6) | 286.4 ms | 319 / 94 | **$0.0696** |
+| **`claude-haiku-4-5`** | Tier 0 Gates + Fast Generative JSON | **100.0%** (20/20) | **100.0%** (20/20) | **0.0%** (0/6) | 448.9 ms | 319 / 94 | **$0.6320** |
+| **`claude-sonnet-4-5`** | Tier 0 Gates + Frontier Baseline JSON | **100.0%** (20/20) | **100.0%** (20/20) | **0.0%** (0/6) | 1092.4 ms | 319 / 94 | **$2.3700** |
 
 ---
 

@@ -15,6 +15,7 @@ from typing import Literal
 from app.jury.catalog_lookup import (
     EXPLICIT_SUBSTITUTIONS,
     CandidateRecord,
+    discover_live_catalog_candidates,
     get_candidate_records,
     resolve_catalog_items,
 )
@@ -154,42 +155,71 @@ def rank_substitutes_detailed(req: SubstitutesRequest, top_k: int = 3) -> list[R
 
     explicit_ids = set(EXPLICIT_SUBSTITUTIONS.get(req.offer.product_id, []))
 
+    # Optionally discover live catalog candidates from P1's SQLite DB + Valio Aimo API when configured
+    live_pairs, live_explicit_ids = discover_live_catalog_candidates(
+        product_id=req.offer.product_id,
+        product_intent=req.need.product_intent,
+        category=target_category,
+        required_claims=req.mandate.required_claims,
+        banned_allergens=req.mandate.banned_allergens,
+        need=req.need,
+    )
+    explicit_ids.update(live_explicit_ids)
+
     # Gather candidate pool: explicit rules + same category
-    candidate_pool: list[tuple[CandidateRecord, bool]] = []
+    candidate_pool: list[tuple[CatalogItem, Offer, bool]] = []
     seen_ids: set[str] = {req.offer.product_id}
+
+    for ci, live_offer in live_pairs:
+        if ci.product_id not in seen_ids:
+            candidate_pool.append((ci, live_offer, ci.product_id in explicit_ids))
+            seen_ids.add(ci.product_id)
 
     for pid in EXPLICIT_SUBSTITUTIONS.get(req.offer.product_id, []):
         if pid in records and pid not in seen_ids:
-            candidate_pool.append((records[pid], True))
+            rec = records[pid]
+            candidate_pool.append((rec.catalog, _build_candidate_offer(rec, req.need), True))
             seen_ids.add(pid)
 
     for pid, rec in records.items():
         if pid in seen_ids:
             continue
         if rec.catalog.category == target_category:
-            candidate_pool.append((rec, pid in explicit_ids))
+            candidate_pool.append((rec.catalog, _build_candidate_offer(rec, req.need), pid in explicit_ids))
             seen_ids.add(pid)
 
     scored: list[tuple[float, str, bool, str, Offer]] = []
-    for rec, is_explicit in candidate_pool:
-        if not _passes_claim_and_allergen_prefilter(req.mandate, rec.catalog):
+    for cand_catalog, cand_offer, is_explicit in candidate_pool:
+        if not _passes_claim_and_allergen_prefilter(req.mandate, cand_catalog):
             continue
-
-        cand_offer = _build_candidate_offer(rec, req.need)
 
         # Spec requirement: "Substitutes go back through the jury"
         jury_metrics = evaluate_with_gemini_decision(
             mandate=req.mandate,
             need=req.need,
             offers=[cand_offer],
-            catalog_items={rec.catalog.product_id: rec.catalog},
+            catalog_items={cand_catalog.product_id: cand_catalog},
             live_api=False,
         )
         jury_decision = jury_metrics.result.decision
         if jury_decision in ("reject", "substitutes"):
             continue
 
-        score, tradeoff = _score_candidate(rec, cand_offer, req, is_explicit)
+        # Synthesize a lightweight CandidateRecord wrapper for _score_candidate
+        rec_for_score = CandidateRecord(
+            catalog=cand_catalog,
+            sales_unit=cand_offer.sales_unit,
+            content_per_sales_unit=max(1.0, req.need.quantity / max(1, cand_offer.units_needed)),
+            unit_price_eur=cand_offer.unit_price_eur,
+            comparison_price_eur=cand_offer.comparison_price_eur,
+            comparison_unit=cand_offer.comparison_unit,
+            available_date=cand_offer.available_date,
+            closing_time=cand_offer.closing_time,
+            sales_block=cand_offer.sales_block,
+            logistic_model=cand_offer.logistic_model,
+            evidence=cand_offer.evidence,
+        )
+        score, tradeoff = _score_candidate(rec_for_score, cand_offer, req, is_explicit)
         # Prefer auto_order candidates over human_approval candidates
         if jury_decision == "auto_order":
             score += 0.05
