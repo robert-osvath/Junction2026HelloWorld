@@ -36,6 +36,11 @@ def create(req: OrderRequest) -> Order:
         raise HTTPException(404, f"unknown mandate {req.mandate_id!r}")
     if not req.lines:
         raise HTTPException(422, "order needs at least one line")
+    # lines come from an external agent: never trust its totals. shortcut: re-check arithmetic only;
+    # re-pricing lines server-side from product_ids via P1's offer builder (T4) is the real fix
+    bad = [l.product_id for l in req.lines if abs(l.units_needed * l.unit_price_eur - l.total_eur) > 0.01]
+    if bad:
+        raise HTTPException(422, f"total_eur != units_needed * unit_price_eur for {bad}")
     oid = f"order-{uuid.uuid4().hex[:12]}"
     _audit(oid, "buyer-agent", "order.requested", req.model_dump(mode="json"),
            f"{mandate.buyer_name} requested {req.need.quantity:g} {req.need.unit}: {req.need.text}")
@@ -64,24 +69,24 @@ def get(order_id: str) -> Order:
     return o
 
 
-def _decide(order_id: str, allowed: set[str], new: str) -> Order:
+def _decide(order_id: str, allowed: set[str], new: str, verb: str) -> Order:
     with _lock:
         o = get(order_id)
         if o.status not in allowed:
-            raise HTTPException(409, f"cannot {new.removesuffix('ed')} an order that is {o.status}; "
+            raise HTTPException(409, f"cannot {verb} an order that is {o.status}; "
                                      f"allowed from: {', '.join(sorted(allowed))}")
         o.status = new
         o.confirmation_no = _confirm() if new == "placed" else None
         get_order_store().save(o)
-        verb = "approved" if new == "placed" else "rejected"
-        _audit(order_id, "human", f"order.{verb}", {"status": new, "confirmation_no": o.confirmation_no},
-               f"Human {verb} {_what(o)}" + (f", confirmation {o.confirmation_no}" if o.confirmation_no else ""))
+        done = verb.rstrip("e") + "ed"  # approve -> approved, reject -> rejected
+        _audit(order_id, "human", f"order.{done}", {"status": new, "confirmation_no": o.confirmation_no},
+               f"Human {done} {_what(o)}" + (f", confirmation {o.confirmation_no}" if o.confirmation_no else ""))
         return o
 
 
 def approve(order_id: str) -> Order:
-    return _decide(order_id, {"pending_approval"}, "placed")
+    return _decide(order_id, {"pending_approval"}, "placed", "approve")
 
 
 def reject(order_id: str) -> Order:
-    return _decide(order_id, {"pending_approval", "substitutes_proposed"}, "rejected")
+    return _decide(order_id, {"pending_approval", "substitutes_proposed"}, "rejected", "reject")

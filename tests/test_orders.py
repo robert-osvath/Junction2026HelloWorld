@@ -23,8 +23,9 @@ def fresh_stores():
     audit._store = store._store = None
 
 
-def place(mandate="mandate-hotel-001", total=None):
-    offer = OFFER if total is None else {**OFFER, "total_eur": total}
+def place(mandate="mandate-hotel-001", units=None):
+    offer = OFFER if units is None else {**OFFER, "units_needed": units,
+                                         "total_eur": round(units * OFFER["unit_price_eur"], 2)}
     return c.post("/orders", json={"mandate_id": mandate, "need": NEED, "lines": [offer]})
 
 
@@ -62,7 +63,7 @@ def test_over_auto_limit_then_reject():
 
 
 def test_over_budget_rejected():
-    o = place(total=2600).json()
+    o = place(units=100).json()
     assert o["status"] == "rejected" and o["confirmation_no"] is None
     assert actions(o["id"])[-1] == ("aimo", "order.rejected")
 
@@ -78,7 +79,7 @@ def test_substitutes_proposed_then_reject(monkeypatch):
 
 def test_invalid_transitions_409():
     placed = place().json()["id"]
-    rejected = place(total=2600).json()["id"]
+    rejected = place(units=100).json()["id"]
     for oid, verb in [(placed, "approve"), (placed, "reject"), (rejected, "approve"), (rejected, "reject")]:
         r = c.post(f"/orders/{oid}/{verb}")
         assert r.status_code == 409 and "cannot" in r.text
@@ -115,3 +116,16 @@ def test_mariadb_store_roundtrip():
     assert [o.id for o in s.list("pending_approval")] == ["order-2"]
     s.save(o2.model_copy(update={"status": "placed", "confirmation_no": "AIMO-SIM-000001"}))
     assert s.get("order-2").status == "placed" and len(s.list()) == 2
+
+
+def test_faked_total_rejected_422():
+    r = c.post("/orders", json={"mandate_id": "mandate-hotel-001", "need": NEED, "lines": [{**OFFER, "total_eur": 1.0}]})
+    assert r.status_code == 422
+
+
+def test_409_message_and_cost_verdict_consistent():
+    o = place(mandate="mandate-hotel-tight").json()
+    cost = next(v for v in o["verdicts"] if v["juror"] == "cost")
+    assert o["status"] == "pending_approval" and cost["decision"] == "escalate"
+    c.post(f"/orders/{o['id']}/approve")
+    assert "cannot approve an order that is placed" in c.post(f"/orders/{o['id']}/approve").json()["detail"]
