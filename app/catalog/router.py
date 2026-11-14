@@ -1,6 +1,11 @@
 """P1 (T1-T4). Mock: returns fixtures."""
-from fastapi import APIRouter
+import logging
 
+from fastapi import APIRouter, Depends, HTTPException
+
+from app.catalog import store
+from app.catalog.aimo import AimoClient, AimoError, get_client
+from app.catalog.offers import get_offers
 from app.mocks import load
 from contracts import CatalogItem, Offer, OffersRequest
 
@@ -14,5 +19,12 @@ def search(q: str = "", claims: str = "", exclude_allergens: str = "", category:
 
 
 @router.post("/offers")
-def offers(req: OffersRequest) -> list[Offer]:
-    return [load("offer")]
+def offers(req: OffersRequest, client: AimoClient = Depends(get_client)) -> list[Offer]:
+    conn = store.connect()
+    try:
+        return get_offers(conn, client, req)
+    except AimoError as e:
+        logging.getLogger(__name__).warning("aimo error: %s", e)
+        raise HTTPException(status_code=502, detail="Valio Aimo API unavailable") from e
+    finally:
+        conn.close()
