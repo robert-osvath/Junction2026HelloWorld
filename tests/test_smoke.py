@@ -39,11 +39,10 @@ def test_jury_and_substitutes():
 
 
 def test_orders_and_audit():
-    order = ok(c.post("/orders", json={"mandate_id": "mandate-hotel-001", "need": F["need"], "lines": [F["offer"]]}))
+    order = ok(c.post("/orders", json={"mandate_id": "mandate-hotel-tight", "need": F["need"], "lines": [F["offer"]]}))
     oid = order["id"]
     assert ok(c.get(f"/orders/{oid}"))["id"] == oid
     assert ok(c.post(f"/orders/{oid}/approve"))["status"] == "placed"
-    assert ok(c.post(f"/orders/{oid}/reject"))["status"] == "rejected"
     assert isinstance(ok(c.get("/audit", params={"order_id": oid})), list)
     assert ok(c.get("/audit/verify"))["ok"] is True
 

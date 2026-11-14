@@ -1,8 +1,11 @@
-"""P4. Orders are still mocks (T12); audit is real (T13)."""
+"""P4. Orders (T12) and audit (T13)."""
+from typing import Literal
+
 from fastapi import APIRouter
 
-from app.mocks import load
+from app.orders import service
 from app.orders.audit import get_store
+from app.orders.store import get_order_store
 from contracts import AuditEvent, AuditVerify, Order, OrderRequest
 
 router = APIRouter(tags=["orders"])
@@ -10,22 +13,27 @@ router = APIRouter(tags=["orders"])
 
 @router.post("/orders")
 def create_order(req: OrderRequest) -> Order:
-    return load("order")
+    return service.create(req)
+
+
+@router.get("/orders")
+def list_orders(status: Literal["placed", "pending_approval", "substitutes_proposed", "rejected"] | None = None) -> list[Order]:
+    return get_order_store().list(status)
 
 
 @router.get("/orders/{order_id}")
 def get_order(order_id: str) -> Order:
-    return load("order").model_copy(update={"id": order_id})
+    return service.get(order_id)
 
 
 @router.post("/orders/{order_id}/approve")
 def approve(order_id: str) -> Order:
-    return load("order").model_copy(update={"id": order_id, "status": "placed"})
+    return service.approve(order_id)
 
 
 @router.post("/orders/{order_id}/reject")
 def reject(order_id: str) -> Order:
-    return load("order").model_copy(update={"id": order_id, "status": "rejected", "confirmation_no": None})
+    return service.reject(order_id)
 
 
 @router.get("/audit")
