@@ -2,13 +2,14 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { api, dt, eur, LABEL, productName, total, WAITING, type Order, type Verdict } from "../../api";
+import { api, day, dt, eur, LABEL, productName, total, WAITING, type Order, type Verdict } from "../../api";
 import { useNow, usePoll } from "../../components/hooks";
 import Icon from "../../components/Icon";
 import Modal from "../../components/Modal";
 
 const RESULT = { approve: "Approve", escalate: "Escalate", reject: "Reject" } as const;
 const jurorName = (j: string) => j.replace(/^tier(\d)$/, "Tier $1").replace(/^./, (c) => c.toUpperCase());
+const SHORT: Record<string, string> = { tier0: "T0", spec: "Sp", delivery: "D", cost: "C", sustainability: "Su", tier2: "T2" };
 const approved = (o: Order) => o.verdicts.filter((v) => v.decision === "approve").length;
 const share = (o: Order) => (o.verdicts.length ? Math.round((approved(o) / o.verdicts.length) * 100) : 0);
 
@@ -40,15 +41,17 @@ export default function Jury() {
   const router = useRouter();
   const now = useNow();
   const orders = usePoll<Order[]>("/orders");
-  const [open, setOpen] = useState<Order | null>(null);
+  const [openId, setOpenId] = useState("");  // by id, so the dialog shows the latest poll
   const [busy, setBusy] = useState("");
   const [err, setErr] = useState("");
 
   const all = [...(orders.data ?? [])].sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
   const feature = all.find((o) => WAITING.includes(o.status)) ?? all[0];
-  const rest = all.filter((o) => o !== feature).slice(0, 9);
-  const cutoff = feature?.lines[0]?.closing_time;
-  const hoursLeft = cutoff && now ? Math.round((new Date(cutoff).getTime() - now) / 3_600_000) : null;
+  const rest = all.filter((o) => o.id !== feature?.id).slice(0, 9);  // the 9 newest; Sourcing lists all
+  const open = all.find((o) => o.id === openId);
+  // earliest order cut-off across the lines
+  const cutoff = feature?.lines.map((l) => l.closing_time).filter((t): t is string => t !== null).sort()[0];
+  const msLeft = cutoff && now ? new Date(cutoff).getTime() - now : null;
 
   async function accept(o: Order, product_id: string) {
     setBusy(product_id); setErr("");
@@ -69,7 +72,7 @@ export default function Jury() {
       </section>
       {(orders.err || err) && <p className="err" role="alert">{err || `Backend: ${orders.err}`}</p>}
 
-      {orders.loading ? <p className="empty-state">Loading…</p> : !feature ? (
+      {orders.loading ? <p className="empty-state">Loading…</p> : orders.data === null ? null : !feature ? (
         <p className="empty-state"><Icon name="users" />No orders yet. Start a purchase and the jury will evaluate it here.</p>
       ) : (
         <div className="jury-feature">
@@ -80,10 +83,10 @@ export default function Jury() {
             <div className="jury-meta">
               <span><Icon name="users" />{feature.verdicts.length} verdicts</span>
               <span><Icon name="file" />{feature.lines.length} order {feature.lines.length === 1 ? "line" : "lines"}</span>
-              {cutoff && <span><Icon name="clock" />{hoursLeft === null ? `Cut-off ${dt(cutoff)}` : hoursLeft > 0 ? `Order cut-off in ${hoursLeft} h` : `Cut-off passed (${dt(cutoff)})`}</span>}
+              {cutoff && <span><Icon name="clock" />{msLeft === null ? `Cut-off ${dt(cutoff)}` : msLeft > 0 ? `Order cut-off in ${Math.ceil(msLeft / 3_600_000)} h` : `Cut-off passed (${dt(cutoff)})`}</span>}
             </div>
             <div className="row-actions">
-              <button className="primary" onClick={() => setOpen(feature)}>See the verdicts <Icon name="arrow" /></button>
+              <button className="primary" onClick={() => setOpenId(feature.id)}>See the verdicts <Icon name="arrow" /></button>
               {feature.status === "pending_approval" && <Link className="ghost-button" href="/approvals?status=pending_approval">Go to approval</Link>}
               {feature.status === "substitutes_proposed" && feature.substitutes[0] && (
                 <button className="ghost-button" disabled={busy !== ""} onClick={() => void accept(feature, feature.substitutes[0].product_id)}>
@@ -93,9 +96,9 @@ export default function Jury() {
               {feature.status === "substitutes_proposed" && feature.substitutes.length > 1 && <Link className="ghost-button" href={`/approvals/${feature.id}`}>All {feature.substitutes.length} substitutes</Link>}
             </div>
           </div>
-          <div className="score-ring" style={{ background: `conic-gradient(var(--lime) ${share(feature)}%, rgba(255, 255, 255, 0.14) 0)` }}>
+          {feature.verdicts.length > 0 && <div className="score-ring" style={{ background: `conic-gradient(var(--lime) ${share(feature)}%, rgba(255, 255, 255, 0.14) 0)` }}>
             <div><strong>{approved(feature)}/{feature.verdicts.length}</strong><span>jurors approve</span></div>
-          </div>
+          </div>}
         </div>
       )}
 
@@ -107,26 +110,26 @@ export default function Jury() {
             <article className="decision-card" key={o.id}>
               <div className="card-top"><span className={`status s-${o.status}`}>{LABEL[o.status]}</span><small>{eur(total(o))}</small></div>
               <h3>{o.need.text}</h3>
-              <p>{o.lines[0]?.name ?? "No product"}</p>
-              <div className="juror-row" aria-label={`${approved(o)} of ${o.verdicts.length} jurors approve`}>
-                <div>{o.verdicts.map((v, i) => <span key={i} className={`avatar v-${v.decision}`} title={`${jurorName(v.juror)}: ${RESULT[v.decision]}`} aria-hidden="true">{jurorName(v.juror)[0]}</span>)}</div>
+              <p>{o.mandate_id} · deliver by {day(o.need.deliver_by)}</p>
+              <div className="juror-row">
+                <div>{o.verdicts.map((v, i) => <span key={i} className={`avatar v-${v.decision}`} title={`${jurorName(v.juror)}: ${RESULT[v.decision]}`} aria-hidden="true">{SHORT[v.juror] ?? jurorName(v.juror)[0]}</span>)}</div>
                 <strong>{approved(o)}/{o.verdicts.length} approve</strong>
               </div>
               <div className="progress"><span style={{ width: `${share(o)}%` }} /></div>
-              {sub && (
+              {(sub || o.lines[0]) && (
                 <div className="winner">
                   <span><Icon name="check" /></span>
-                  <div><small>Top substitute</small><strong>{productName(sub.name)}</strong></div>
+                  <div><small>{sub ? "Top substitute" : "Chosen product"}</small><strong>{productName((sub ?? o.lines[0]).name)}</strong></div>
                 </div>
               )}
               {sub
-                ? <button className="primary" disabled={busy !== ""} onClick={() => void accept(o, sub.product_id)}>{busy === sub.product_id ? "Ordering…" : `Order substitute (${eur(sub.total_eur)})`}</button>
-                : <button className="secondary" onClick={() => setOpen(o)}>See the verdicts</button>}
+                ? <button className="primary" disabled={busy !== ""} onClick={() => void accept(o, sub.product_id)}>{busy === sub.product_id ? "Ordering…" : `Order ${productName(sub.name)} (${eur(sub.total_eur)})`}</button>
+                : <button className="secondary" onClick={() => setOpenId(o.id)}>See the verdicts</button>}
             </article>
           );
         })}
       </div>
-      {open && <Verdicts order={open} onClose={() => setOpen(null)} />}
+      {open && <Verdicts order={open} onClose={() => setOpenId("")} />}
     </>
   );
 }

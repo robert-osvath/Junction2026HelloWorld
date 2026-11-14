@@ -1,6 +1,7 @@
 "use client";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useState } from "react";
 import { day, eur, LABEL, total, type Order, type Status } from "../../api";
 import { usePoll } from "../../components/hooks";
 import Icon from "../../components/Icon";
@@ -9,10 +10,15 @@ import NewPurchase from "../../components/NewPurchase";
 type Tab = Status | "all";
 const TABS: Tab[] = ["all", "pending_approval", "placed", "substitutes_proposed", "rejected"];
 
-export default function Sourcing() {
+export default function Page() {
+  return <Suspense fallback={<p className="empty-state">Loading…</p>}><Sourcing /></Suspense>;
+}
+
+function Sourcing() {
   const router = useRouter();
+  const param = useSearchParams().get("status") as Tab | null;  // deep link from the overview cards
   const orders = usePoll<Order[]>("/orders");
-  const [tab, setTab] = useState<Tab>("all");
+  const [tab, setTab] = useState<Tab>(param && TABS.includes(param) ? param : "all");
   const [filter, setFilter] = useState("");
   const [buying, setBuying] = useState(false);
 
@@ -58,7 +64,7 @@ export default function Sourcing() {
             <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter orders…" aria-label="Filter orders by request, product or buyer" />
           </label>
         </div>
-        {orders.loading ? <p className="empty-state">Loading…</p> : rows.length === 0 ? <p className="empty-state">No matching orders.</p> : (
+        {orders.loading ? <p className="empty-state">Loading…</p> : orders.data === null ? <p className="empty-state">Orders could not be loaded.</p> : rows.length === 0 ? <p className="empty-state">No matching orders.</p> : (
           <div className="table-wrap"><table>
             <thead>
               <tr><th scope="col">Request</th><th scope="col">Status</th><th scope="col" className="num">Total</th><th scope="col">Deliver by</th><th scope="col">Buyer</th><th scope="col"><span className="sr-only">Open</span></th></tr>
@@ -69,7 +75,7 @@ export default function Sourcing() {
                   <td>
                     <div className="project-name">
                       <span className="project-icon" aria-hidden="true"><Icon name="briefcase" /></span>
-                      <div><a href={`/approvals/${o.id}`} onClick={(e) => { e.preventDefault(); router.push(`/approvals/${o.id}`); }}><strong>{o.need.text}</strong></a>
+                      <div><Link href={`/approvals/${o.id}`} onClick={(e) => e.stopPropagation()}><strong>{o.need.text}</strong></Link>
                         <small>{o.lines[0] ? `${o.lines[0].units_needed} x ${o.lines[0].sales_unit} ${o.lines[0].name}` : "no product"}</small></div>
                     </div>
                   </td>

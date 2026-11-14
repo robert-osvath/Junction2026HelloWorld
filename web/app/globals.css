@@ -108,7 +108,7 @@ a { color: var(--green-2); }
 .table-wrap { width: 100%; overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 th, td { padding: 14px 24px; text-align: left; vertical-align: top; border-bottom: 1px solid #eceeea; }
-th { white-space: nowrap; padding-top: 12px; padding-bottom: 10px; background: #fafaf7; color: #75857e; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+th { padding-top: 12px; padding-bottom: 10px; background: #fafaf7; color: #75857e; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
 tbody tr:last-child td { border-bottom: 0; }
 ul.plain { margin: 0; padding: 0; list-style: none; }
 ul.bul { margin: 0; padding-left: 16px; }
@@ -285,9 +285,10 @@ code { font-size: 12px; word-break: break-all; }
 .table-panel { background: var(--white); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
 .table-panel > .empty-state { margin: 16px 24px 24px; }
 .search-box.filter { width: 220px; flex: none; }
+.table-panel th { white-space: nowrap; }
+.table-panel td { vertical-align: middle; }
 tr.click { cursor: pointer; }
 tr.click:hover td { background: #fafbf5; }
-td { vertical-align: middle; }
 .project-name { display: flex; align-items: center; gap: 12px; }
 .project-name a { color: inherit; text-decoration: none; }
 .project-name a:hover strong { text-decoration: underline; }
