@@ -1,0 +1,192 @@
+import json
+from datetime import date
+from pathlib import Path
+
+import httpx
+import pytest
+
+from app.catalog.aimo import AimoClient, AimoError
+
+FIX = Path(__file__).parent / "fixtures"
+PRICE = json.loads((FIX / "aimo_price.json").read_text())
+AVAIL = json.loads((FIX / "aimo_availability.json").read_text())
+D = date(2026, 11, 17)
+
+
+class Fake:
+    def __init__(self, script=None):
+        self.calls = []  # (path, body, headers)
+        self.script = list(script or [])
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        path = request.url.path
+        self.calls.append((path, body, request.headers))
+        if self.script:
+            return self.script.pop(0)
+        src = PRICE if path.endswith("price") else AVAIL
+        ids = set(body["products"])
+        return httpx.Response(200, json={**src, "products": [x for x in src["products"] if x["productId"] in ids]})
+
+    def n(self, suffix):
+        return sum(1 for c in self.calls if c[0].endswith(suffix))
+
+
+def make(fake, **kw):
+    sleeps = []
+    t = [0.0]
+    c = AimoClient("k", transport=httpx.MockTransport(fake), clock=lambda: t[0],
+                   sleep=sleeps.append, **kw)
+    return c, sleeps, t
+
+
+def test_parse_price_and_unknown_id_absent():
+    c, _, _ = make(Fake())
+    r = c.prices(["463038", "460000", "999999999"], D)
+    assert set(r) == {"463038", "460000"}  # bogus id comes back as error:true -> absent
+    e = r["463038"]
+    assert (e.catalog_price_eur, e.list_price_eur, e.comparison_price_eur) == (31.31, 36.83, 1.57)
+    assert e.comparison_unit == "L" and e.vat_rate == 13.5 and not e.net_price_found
+    assert r["460000"].comparison_unit == "KG"
+
+
+def test_parse_availability():
+    fake = Fake()
+    c, _, _ = make(fake)
+    r = c.availability(["463038", "460000", "460004", "999999999"], D)
+    assert set(r) == {"463038", "460000"}  # no logisticModel / empty scheduleLines -> absent
+    eila = r["463038"]
+    assert eila.logistic_model == "Terminal" and eila.quantity is None
+    assert eila.closing_time.tzinfo is not None and eila.closing_time.hour == 15
+    assert eila.available_date == date(2026, 11, 16) and not eila.sales_block
+    st = r["460000"]
+    assert st.logistic_model == "Stock" and st.quantity == 48
+    assert fake.calls[0][2]["x-api-key"] == "k"
+    assert fake.calls[0][1] == {"customer": "1", "requestedDate": "2026-11-17",
+                                "products": ["463038", "460000", "460004", "999999999"]}
+
+
+def test_20_ids_one_call_per_api_and_cache_hit():
+    fake = Fake()
+    c, _, _ = make(fake)
+    ids = [str(i) for i in range(20)] + ["0", "1"]  # duplicates collapse
+    c.prices(ids, D)
+    c.availability(ids, D)
+    assert fake.n("price") == 1 and fake.n("availability") == 1
+    assert len(fake.calls[0][1]["products"]) == 20
+    c.prices(ids, D)
+    c.availability(ids, D)
+    assert len(fake.calls) == 2
+    c.prices(ids, date(2026, 11, 18))  # different date -> new call
+    assert len(fake.calls) == 3
+
+
+def test_partial_cache_only_requests_uncached():
+    fake = Fake()
+    c, _, _ = make(fake)
+    c.prices(["463038"], D)
+    c.prices(["463038", "460000"], D)
+    assert fake.calls[1][1]["products"] == ["460000"]
+
+
+def test_1500_ids_two_calls():
+    fake = Fake()
+    c, _, _ = make(fake)
+    c.prices([str(i) for i in range(1500)], D)
+    assert [len(x[1]["products"]) for x in fake.calls] == [1000, 500]
+
+
+def test_cache_expiry():
+    fake = Fake()
+    c, _, t = make(fake)
+    c.prices(["463038"], D)
+    t[0] = 299
+    c.prices(["463038"], D)
+    assert len(fake.calls) == 1
+    t[0] = 301
+    c.prices(["463038"], D)
+    assert len(fake.calls) == 2
+
+
+def test_retry_429_retry_after_then_503_then_success():
+    ok = httpx.Response(200, json=PRICE)
+    fake = Fake([httpx.Response(429, headers={"Retry-After": "7"}), httpx.Response(503), ok])
+    c, sleeps, _ = make(fake)
+    assert "463038" in c.prices(["463038"], D)
+    assert sleeps == [7.0, 1.0] and len(fake.calls) == 3
+
+
+def test_give_up_raises():
+    fake = Fake([httpx.Response(500)] * 10)
+    c, sleeps, _ = make(fake, max_retries=2)
+    with pytest.raises(AimoError):
+        c.prices(["463038"], D)
+    assert len(fake.calls) == 3 and sleeps == [0.5, 1.0]
+
+
+def test_4xx_no_retry():
+    fake = Fake([httpx.Response(401, json={"detail": "Invalid or missing API key"})])
+    c, sleeps, _ = make(fake)
+    with pytest.raises(AimoError):
+        c.prices(["463038"], D)
+    assert len(fake.calls) == 1 and sleeps == []
+
+
+def test_transport_error_retried():
+    state = {"n": 0}
+
+    def h(req):
+        state["n"] += 1
+        if state["n"] == 1:
+            raise httpx.ConnectError("boom")
+        return httpx.Response(200, json=PRICE)
+
+    c = AimoClient("k", transport=httpx.MockTransport(h), sleep=lambda s: None)
+    assert "463038" in c.prices(["463038"], D)
+
+
+def test_missing_key_raises_on_call(monkeypatch):
+    monkeypatch.delenv("VALIO_API_KEY", raising=False)
+    monkeypatch.setattr("app.catalog.aimo.load_dotenv", lambda *a, **k: None)
+    fake = Fake()
+    c = AimoClient(None, transport=httpx.MockTransport(fake))
+    with pytest.raises(AimoError):
+        c.prices(["463038"], D)
+    assert fake.calls == []
+
+
+@pytest.mark.parametrize("resp", [
+    httpx.Response(200, text="<html>maintenance</html>"),
+    httpx.Response(200, json={}),
+    httpx.Response(200, json={"products": [{"catalogPrice": {"value": 1}}]}),  # no productId
+])
+def test_malformed_200_raises_aimo_error(resp):
+    c, _, _ = make(Fake([resp]))
+    with pytest.raises(AimoError):
+        c.prices(["463038"], D)
+
+
+@pytest.mark.parametrize("header,expected", [("3600", 30.0), ("inf", 0.5), ("-5", 0.0)])
+def test_retry_after_is_clamped(header, expected):
+    ok = Fake()
+    fake = Fake([httpx.Response(429, headers={"Retry-After": header})])
+    fake.script.append(ok(httpx.Request("POST", "https://x/api/price",
+                                        json={"products": ["463038"]})))
+    c, sleeps, _ = make(fake)
+    assert "463038" in c.prices(["463038"], D)
+    assert sleeps == [expected]
+
+
+def test_sales_block_on_schedule_line_counts():
+    item = {**next(x for x in AVAIL["products"] if x["productId"] == "460000"), "salesBlock": False}
+    item["scheduleLines"] = [{**item["scheduleLines"][0], "salesBlock": True}]
+    c, _, _ = make(Fake([httpx.Response(200, json={"products": [item]})]))
+    assert c.availability(["460000"], D)["460000"].sales_block is True
+
+
+def test_expired_entries_are_evicted():
+    c, _, t = make(Fake())
+    c.prices(["463038"], D)
+    t[0] = 301
+    c.prices(["460000"], date(2026, 11, 18))
+    assert all(k[2] == date(2026, 11, 18) for k in c._cache)
