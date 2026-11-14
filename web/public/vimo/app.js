@@ -769,6 +769,23 @@ function hasBrowserSpeechRecognition() {
   return Boolean(window.SpeechRecognition || window.webkitSpeechRecognition);
 }
 
+async function sendElevenTurn(text) {
+  const request = text.trim();
+  if (!request) return;
+  setThinking(request);
+  try {
+    await startElevenLive();
+    if (!elevenConversation) throw new Error("Live Vimo did not connect");
+    // This is intentionally a direct user turn. Re-routing a completed wake
+    // transcript through Gemini and local TTS added an unnecessary second
+    // model request and made normal back-and-forth feel delayed.
+    elevenConversation.sendUserMessage(/\bvimo\b/i.test(request) ? request : `Vimo, ${request}`);
+  } catch (_) {
+    // Gemini remains a functional fallback when the live voice service is unavailable.
+    await processVimoCommand(request);
+  }
+}
+
 function stopWakeListener() {
   if (wakeRecognition) {
     wakeRecognition.onend = null;
@@ -801,13 +818,10 @@ function startWakeListener() {
       stopWakeListener();
       reportVoiceEvent("browser_wake_detected");
       const command = match[1].trim();
-      if (command) beginLiveRequest(command);
+      if (command) sendElevenTurn(command);
       else {
-        setVimoState("Vimo is listening", "I’m listening. Tell me what your kitchen needs.", true);
-        speak("I’m listening. What does your kitchen need?").then(() => {
-          beginLiveRequest();
-          listenToVimo(collectLiveRequest);
-        });
+        setVimoState("Vimo is listening", "Tell me what your kitchen needs.", true);
+        listenToVimo(sendElevenTurn);
       }
       return;
     }
@@ -1014,15 +1028,7 @@ $("#ask-form").addEventListener("submit", async (event) => {
   const text = input.value.trim();
   if (!text) return;
   input.value = "";
-  try { await startElevenLive(); } catch (_) { /* falls back below */ }
-  if (elevenConversation) {
-    // the agent only answers requests addressed to Vimo
-    elevenConversation.sendUserMessage(/\bvimo\b/i.test(text) ? text : `Vimo, ${text}`);
-    setThinking(text);
-  } else {
-    // the legacy chat path cannot draft orders: say so instead of pretending
-    setVimoState("Vimo is offline", "The live Vimo service is unavailable, so typed orders cannot be drafted right now. Try again in a moment.");
-  }
+  await sendElevenTurn(text);
 });
 $("#start-vimo").addEventListener("click", startVimo);
 function normalizeClaim(claim) {
