@@ -48,6 +48,7 @@ def main() -> int:
         stats = build(conn)
     except embeddings.EmbeddingError as e:
         print(f"embedding failed: {e} (progress so far is saved; re-run to resume)", file=sys.stderr)
+        print(f"{store.embedding_count(conn, embeddings.MODEL)} products have embeddings", file=sys.stderr)
         return 1
     finally:
         emb = embeddings._embedder
