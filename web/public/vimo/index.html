@@ -31,8 +31,14 @@
         <section class="vimo-call" aria-live="polite">
           <div class="vimo-orb" id="vimo-orb"><i></i><i></i><i></i></div>
           <div><p class="eyebrow">VIMO VOICE LINE</p><h2 id="vimo-title">Vimo is ready when you are</h2><p id="vimo-status">Start once to allow microphone access. After that, Vimo can guide setup and read important updates aloud.</p><p class="voice-presence" id="voice-presence" aria-live="polite">● Microphone standby</p></div>
-          <button class="secondary" id="open-rules">Type rules instead</button>
+          <button class="secondary" id="open-rules">Purchasing rules</button>
         </section>
+
+        <form class="ask-form" id="ask-form">
+          <label for="ask-input">Type to Vimo</label>
+          <input id="ask-input" autocomplete="off" placeholder="e.g. Order 1,000 L lactose-free milk by Monday" />
+          <button class="primary" type="submit">Send</button>
+        </form>
 
         <section class="approval-banner" id="approval-banner" hidden>
           <div class="approval-symbol">!</div>
@@ -48,23 +54,23 @@
           </div>
         </section>
 
-        <section class="metrics" aria-label="Today at a glance">
-          <article><p>Active decisions</p><strong id="active-count">03</strong><span>across 2 locations</span></article>
-          <article><p>Within autonomy</p><strong class="good">€1,248</strong><span>ready to place</span></article>
-          <article><p>Awaiting approval</p><strong class="warn">01</strong><span>policy exception</span></article>
-          <article><p>Decision confidence</p><strong>94%</strong><span>from verified evidence</span></article>
+        <section class="metrics" aria-label="Your orders with Vimo">
+          <article><p>Orders with Vimo</p><strong id="m-orders">0</strong><span>drafted from this cockpit</span></article>
+          <article><p>Placed</p><strong class="good" id="m-placed">€0</strong><span id="m-placed-n">0 orders</span></article>
+          <article><p>Awaiting approval</p><strong class="warn" id="m-pending">0</strong><span>held by the jury</span></article>
+          <article><p>Jury confidence</p><strong id="m-conf">—</strong><span>latest order, average</span></article>
         </section>
 
         <section class="grid">
           <article class="panel decision-panel">
             <div class="panel-heading">
-              <div><p class="eyebrow">CURRENT DECISION</p><h2>1,000 L lactose-free milk</h2></div>
-              <span class="status">Jury complete</span>
+              <div><p class="eyebrow">CURRENT DECISION</p><h2 id="decision-title">No order yet</h2></div>
+              <span class="status" id="decision-status">Waiting</span>
             </div>
-            <p class="request">“Find a compliant option for Monday delivery, within our approved supplier policy.”</p>
+            <p class="request" id="decision-request">Ask Vimo for what you need. The live order and the jury’s verdicts appear here.</p>
             <div class="jury" id="jury-list"></div>
             <div class="recommendation">
-              <div><p class="eyebrow">RECOMMENDATION</p><h3>Valio Eila® 10 L Novobox</h3><p>50 cases · €1,565.50 · Delivery Monday</p></div>
+              <div><p class="eyebrow">RECOMMENDATION</p><h3 id="rec-name">—</h3><p id="rec-detail"></p></div>
               <button class="text-button" id="speak-update">Hear update ↗</button>
             </div>
           </article>
