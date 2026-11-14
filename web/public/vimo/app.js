@@ -112,6 +112,9 @@ function setVimoState(title, detail, listening = false) {
   $("#vimo-title").textContent = title;
   $("#vimo-status").textContent = detail;
   $("#vimo-orb").classList.toggle("listening", listening);
+  // drives the stage waveform (styles.css): every state change in this file goes through here
+  const stage = $("#vimo-stage");
+  if (stage) stage.dataset.state = /speaking/i.test(title) ? "speaking" : /thinking|working|checking|connecting/i.test(title) ? "working" : listening ? "listening" : "standby";
   const presence = $("#voice-presence");
   if (presence) {
     presence.textContent = listening ? "● Microphone listening" : "● Microphone standby";
@@ -1000,6 +1003,7 @@ function handleOnboardingAnswer(transcript) {
     substitutes: onboardingAnswers.substitutes,
   };
   localStorage.setItem("aimo-rules", JSON.stringify(rules));
+  renderProfile();
   $("#policy-copy").textContent = `${rules.buyer}: Vimo can act up to €${rules.limit} when every policy check passes.`;
   state.events.unshift([new Date().toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"}), "Voice rules saved", `Vimo may auto-approve up to €${rules.limit}.`]);
   renderTimeline();
@@ -1112,6 +1116,7 @@ $("#rules-form").addEventListener("submit", async (event) => {
     return;
   }
   localStorage.setItem("aimo-rules", JSON.stringify(rules));
+  renderProfile();
   $("#policy-copy").textContent = `${rules.buyer}: orders up to €${rules.limit} can proceed automatically when all dietary and delivery rules are met.`;
   $("#rules-dialog").close();
   addEvent("Buyer policy updated", `Auto-approve up to ${eur(Number(rules.limit))}, budget ${eur(Number(rules.budget))}${rules.allergens ? `, no ${rules.allergens}` : ""}.`);
@@ -1223,3 +1228,33 @@ loadDecision();
 // Browsers block audio (and should ask for the mic) only after a click, so the web page starts on "Talk to Vimo".
 // Electron enables autoplay and grants the mic, so the desktop app can start right away.
 if (/Electron/.test(navigator.userAgent)) setTimeout(() => startVimo({announce: false}), 350);
+
+// Shell: the buyer from the saved rules in the sidebar profile, and the mobile menu (same behaviour as the Next.js shell).
+function renderProfile() {
+  let rules = {};
+  try { rules = JSON.parse(localStorage.getItem("aimo-rules") || "{}"); } catch (_) { /* private mode or bad JSON */ }
+  const name = (rules.buyer || "").trim();
+  $("#profile-name").textContent = name || "No buyer rules yet";
+  $("#profile-role").textContent = name ? "Buyer" : "Set them with Purchasing rules";
+  $("#profile-initials").textContent = name ? name.split(/\s+/).slice(0, 2).map((w) => w[0].toUpperCase()).join("") : "B";
+}
+renderProfile();
+window.addEventListener("storage", renderProfile);
+
+function setMenu(open) {
+  $("#sidebar").classList.toggle("open", open);
+  $("#menu-backdrop").hidden = !open;
+  $("#menu-open").setAttribute("aria-expanded", String(open));
+  (open ? $("#sidebar nav a") : $("#menu-open")).focus();
+}
+
+// Lock (passphrase gate), as in the workspace sidebar: shown only when the gate is on.
+fetch("/auth/status", {cache: "no-store"}).then((r) => r.json()).then((s) => { if (s?.gate) $("#lock").hidden = false; }).catch(() => {});
+$("#lock").addEventListener("click", async () => {
+  await fetch("/auth/lock", {method: "POST"}).catch(() => {});
+  window.location.assign("/unlock");
+});
+$("#menu-open").addEventListener("click", () => setMenu(true));
+$("#menu-close").addEventListener("click", () => setMenu(false));
+$("#menu-backdrop").addEventListener("click", () => setMenu(false));
+document.addEventListener("keydown", (event) => { if (event.key === "Escape" && $("#sidebar").classList.contains("open")) setMenu(false); });
