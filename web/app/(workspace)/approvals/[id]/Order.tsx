@@ -3,18 +3,11 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import {
-  api, dt, eur, heldReason, LABEL, total,
+  api, dt, eur, heldReason, LABEL, total, who,
   type AuditEvent, type AuditVerify, type Offer, type Order, type RejectRequest,
 } from "../../../api";
 
 const RESULT = { approve: "Approve", escalate: "Escalate", reject: "Reject" } as const;
-
-function who(a: string) {
-  if (a === "buyer-agent") return "Buyer agent";
-  if (a === "aimo") return "Aimo system";
-  if (a === "human") return "Approver";
-  return a.startsWith("juror:") ? `Juror: ${a.slice(6).replace(/^./, (c) => c.toUpperCase())}` : a;
-}
 
 function Lines({ lines }: { lines: Offer[] }) {
   const [now] = useState(() => Date.now());
