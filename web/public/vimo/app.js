@@ -580,7 +580,8 @@ function rememberOrder(order) {
   renderMetrics();
   // a decision made by voice or on /approvals must show in the event popup too
   const line = eventPlan?.lines.find((l) => l.result?.order?.id === order.id);
-  if (line && line.result.order.status !== order.status) {
+  const open = ["pending_approval", "substitutes_proposed"];  // a decided row never goes back (stale poll responses)
+  if (line && line.result.order.status !== order.status && open.includes(line.result.order.status)) {
     line.result.order = order;
     if ($("#event-dialog").open) renderEventPlan();
   }
