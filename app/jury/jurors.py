@@ -269,6 +269,19 @@ def _evaluate_lines_heuristic(
     )
 
 
+# Live LLM calls run inside POST /orders and /jury/evaluate: bound them so a hung API can't block an order.
+# On timeout the except-branch below falls back to the calibrated heuristic. Env JURY_LLM_TIMEOUT_MS, milliseconds.
+def _timeout_ms(default: int = 5000) -> int:
+    try:
+        value = int(os.getenv("JURY_LLM_TIMEOUT_MS", "").strip() or default)
+    except ValueError:
+        return default  # a typo in the env must never stop the app from importing
+    return value if value > 0 else default
+
+
+GEMINI_TIMEOUT_MS = _timeout_ms()  # 5 s: one order can chain two LLM calls (evaluate + substitutes)
+
+
 def _get_env_key(*names: str) -> str:
     for n in names:
         val = os.getenv(n)
@@ -301,6 +314,7 @@ def evaluate_with_gemini_decision(
     est_input_tokens = max(120, len(prompt_text) // 4)
 
     h_spec, h_deliv, h_cost = _evaluate_lines_heuristic(mandate, need, offers, catalog_items, model_name)
+    used_live = False  # True only when the Decisions API answered and its answers were merged
 
     if live_api and tier0.decision != "reject":
         api_key = _get_env_key("GEMINI_API_KEY", "GOOGLE_API_KEY")
@@ -308,7 +322,8 @@ def evaluate_with_gemini_decision(
             try:
                 from google import genai
 
-                client = genai.Client(api_key=api_key, http_options={"api_version": "v1beta"})
+                client = genai.Client(api_key=api_key,
+                                      http_options={"api_version": "v1beta", "timeout": GEMINI_TIMEOUT_MS})
                 resp = client.decisions.create(
                     model="gemini-decision-1",
                     input=prompt_text,
@@ -380,8 +395,14 @@ def evaluate_with_gemini_decision(
                             "confidence": round(float(getattr(ans_cost, "confidence", h_cost.confidence)), 3),
                         }
                     )
+                used_live = True
             except Exception as exc:
                 log.warning("gemini-decision-1 live call failed (%s); using calibrated fallback", exc)
+
+    if not used_live:
+        # make the fallback visible in the API response, not only in logs
+        h_spec, h_deliv, h_cost = (v.model_copy(update={"model": f"{model_name}/fallback"})
+                                   for v in (h_spec, h_deliv, h_cost))
 
     verdicts = [tier0, h_spec, h_deliv, h_cost]
     jury_res = aggregate_verdicts(mandate, offers, verdicts)
@@ -450,7 +471,7 @@ def evaluate_with_generative_llm(
                 try:
                     from google import genai
 
-                    client = genai.Client(api_key=api_key)
+                    client = genai.Client(api_key=api_key, http_options={"timeout": GEMINI_TIMEOUT_MS})
                     interaction = client.interactions.create(
                         model=model_name,
                         system_instruction=system_prompt,
