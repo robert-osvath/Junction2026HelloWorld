@@ -2,7 +2,8 @@ import { NextResponse, type NextRequest } from "next/server";
 
 // UX only: sends visitors without the demo cookie to /unlock. The API enforces the gate itself.
 export function proxy(req: NextRequest) {
-  if (req.cookies.has("aimo_demo")) return NextResponse.next();
+  // DEMO_GATE=off (Vercel env) opens the demo; the API has the same switch
+  if (process.env.DEMO_GATE === "off" || req.cookies.has("aimo_demo")) return NextResponse.next();
   const { pathname, search } = req.nextUrl;
   const url = req.nextUrl.clone();
   url.pathname = "/unlock";

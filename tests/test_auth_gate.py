@@ -88,3 +88,11 @@ def test_throttle_is_per_client_with_global_cap(gated, monkeypatch):
     assert gated.post("/auth/unlock", json={"passphrase": PASS}, headers={"X-Forwarded-For": "2.2.2.2"}).status_code == 200
     monkeypatch.setattr(auth, "GLOBAL_FAIL_LIMIT", auth.FAIL_LIMIT)  # rotating spoofed IPs still hit the global cap
     assert gated.post("/auth/unlock", json={"passphrase": PASS}, headers={"X-Forwarded-For": "3.3.3.3"}).status_code == 429
+
+
+def test_demo_gate_off_opens_the_api_even_with_a_passphrase(monkeypatch):
+    monkeypatch.setenv("DEMO_PASSPHRASE", PASS)
+    monkeypatch.setenv("DEMO_GATE", "off")
+    from fastapi.testclient import TestClient
+    from app.main import app
+    assert TestClient(app).get("/orders").status_code == 200
