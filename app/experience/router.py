@@ -365,6 +365,12 @@ async def create_draft(request: CreateDraftRequest) -> Order:
     Price, availability, and package quantity are rebuilt from the Valio Aimo
     feeds immediately before deterministic jury and policy evaluation.
     """
+    # GS1 allergen codes (AM milk, AW gluten, ...): a free-text "milk" would match nothing and silently ban nothing
+    unknown = [code for code in request.banned_allergens if not re.fullmatch(r"[A-Z]{2}", code)]
+    if unknown:
+        raise HTTPException(status_code=422, detail=(
+            f"Unknown allergen code(s): {', '.join(unknown)}. Use GS1 codes, e.g. AM (milk), AW (gluten), "
+            "AE (egg), AY (soy), AN (tree nuts), AP (peanuts), AF (fish), AS (sesame)."))
     mandate = load("mandate").model_copy(update={
         "id": "mandate-vimo-live",
         "buyer_name": request.buyer_name,

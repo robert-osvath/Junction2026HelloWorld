@@ -95,3 +95,12 @@ def test_agent_state_only_reports_cockpit_orders():
     state = experience.backend_agent_state()
     assert state.order_id == "not-created" or any(
         o.id == state.order_id and o.mandate_id == "mandate-vimo-live" for o in get_order_store().list())
+
+
+def test_create_draft_rejects_free_text_allergens(fake_client):
+    r = TestClient(app).post("/experience/create-draft", json={
+        "buyer_name": "My kitchen", "auto_approve_limit": 300, "budget": 900,
+        "product_id": "463038", "product_intent": "milk", "quantity": 10, "unit": "L",
+        "deliver_by": D.isoformat(), "banned_allergens": ["AM", "gluten"],
+    })
+    assert r.status_code == 422 and r.json()["detail"].startswith("Unknown allergen code(s): gluten")
