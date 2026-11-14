@@ -37,14 +37,24 @@ def is_cockpit_id(mandate_id: str) -> bool:
 
 
 class MemoryStore:
+    """Process-lifetime store (no DB_URL). Kept apart from the POLICIES/MANDATES caches so clearing the
+    caches behaves like a restart against a real store; the whole store itself is lost on a real restart,
+    exactly like the in-memory order store."""
+
+    def __init__(self) -> None:
+        self._rows: dict[str, Mandate] = {}
+
     def save(self, mandate: Mandate) -> None:
-        POLICIES[mandate.id] = mandate
+        self._rows[mandate.id] = mandate
+
+    def save_if_absent(self, mandate: Mandate) -> None:
+        self._rows.setdefault(mandate.id, mandate)
 
     def get(self, policy_id: str) -> Mandate | None:
-        return POLICIES.get(policy_id)
+        return self._rows.get(policy_id)
 
     def latest(self, buyer_name: str) -> Mandate | None:
-        return next((m for m in reversed(list(POLICIES.values())) if _same(m.buyer_name, buyer_name)), None)
+        return next((m for m in reversed(list(self._rows.values())) if _same(m.buyer_name, buyer_name)), None)
 
 
 class MariaDBStore:
@@ -59,6 +69,11 @@ class MariaDBStore:
     def save(self, mandate: Mandate) -> None:
         with self.conn() as conn, conn.cursor() as cur:
             cur.execute("INSERT INTO buyer_policies (id, body) VALUES (%s, %s)",
+                        (mandate.id, mandate.model_dump_json()))
+
+    def save_if_absent(self, mandate: Mandate) -> None:
+        with self.conn() as conn, conn.cursor() as cur:  # several workers may register the same default
+            cur.execute("INSERT IGNORE INTO buyer_policies (id, body) VALUES (%s, %s)",
                         (mandate.id, mandate.model_dump_json()))
 
     def get(self, policy_id: str) -> Mandate | None:
@@ -98,8 +113,9 @@ def save(mandate: Mandate) -> Mandate:
 
 
 def resolve(mandate_id: str | None) -> Mandate | None:
-    """The one mandate lookup: cache (saved/fixture/default) -> store -> deterministic rebuild of a
-    `default-<slug>` policy (so orders under it stay actionable after a restart)."""
+    """The one mandate lookup: cache (saved/fixture/default) -> store. Default policies are persisted
+    when first used (see default()), so orders under them stay actionable after a restart, and an
+    arbitrary `default-...` id that was never issued does not resolve."""
     if not mandate_id:
         return None
     cached = POLICIES.get(mandate_id) or MANDATES.get(mandate_id)
@@ -111,8 +127,6 @@ def resolve(mandate_id: str | None) -> Mandate | None:
         POLICIES[saved.id] = saved
         MANDATES[saved.id] = saved
         return saved
-    if mandate_id.startswith("default-") and len(mandate_id) > len("default-"):
-        return default(mandate_id[len("default-"):].replace("-", " ").title())
     return None
 
 
@@ -128,7 +142,10 @@ def default(buyer_name: str | None = None) -> Mandate:
         return base
     slug = "-".join("".join(c if c.isalnum() else " " for c in name.casefold()).split())[:48] or "buyer"
     m = base.model_copy(update={"id": f"default-{slug}", "buyer_name": name})
-    MANDATES.setdefault(m.id, m)
+    if m.id not in MANDATES:
+        with _lock:
+            _store_for_runtime().save_if_absent(m)  # persist on first use: restart-safe, never invented
+        MANDATES.setdefault(m.id, m)
     return MANDATES[m.id]
 
 

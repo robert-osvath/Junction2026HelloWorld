@@ -233,3 +233,15 @@ def test_create_draft_with_hint_without_offers_persists_nothing(monkeypatch):
         "product_id": "463038", "product_intent": "milk", "quantity": 10, "unit": "L", "deliver_by": D.isoformat()})
     assert r.status_code == 422 and r.json()["detail"] == "because"
     assert len(store.get_order_store().list()) == before and audit.get_store().events(None) == []
+
+
+def test_never_issued_default_id_does_not_resolve():
+    from app.orders import policies
+    assert policies.resolve("default-garbage") is None
+    r = TestClient(app).post("/orders", json={"mandate_id": "default-garbage", "need": NEED.model_dump(mode="json"),
+                                              "lines": []})
+    assert r.status_code == 404
+    issued = policies.default("Cafe Issued")
+    _forget_non_fixture_mandates()
+    again = policies.resolve(issued.id)  # persisted on first use -> survives the restart simulation
+    assert again is not None and again.auto_approve_limit_eur == issued.auto_approve_limit_eur
