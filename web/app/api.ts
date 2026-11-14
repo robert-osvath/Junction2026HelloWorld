@@ -6,10 +6,12 @@ export type Offer = {
   total_eur: number; available_date: string; closing_time: string | null; sales_block: boolean;
   logistic_model: string; evidence: Evidence;
 };
+export type Need = { text: string; product_intent: string; quantity: number; unit: "L" | "kg" | "pcs"; deliver_by: string; extra_constraints: string[] };
+export type CatalogItem = { product_id: string; name: string; vendor_name: string | null; sales_unit: string; category: string | null; claims: string[]; allergens_contains: string[]; allergens_may_contain: string[]; allergen_data: boolean };
 export type Verdict = { juror: string; decision: "approve" | "escalate" | "reject"; confidence: number; reasons: string[]; model: string | null };
 export type Status = "pending_approval" | "placed" | "substitutes_proposed" | "rejected";
 export type Order = {
-  id: string; mandate_id: string; need: { text: string }; lines: Offer[]; verdicts: Verdict[];
+  id: string; mandate_id: string; need: Need; lines: Offer[]; verdicts: Verdict[];
   status: Status; confirmation_no: string | null; substitutes: Offer[]; created_at: string | null;
 };
 export type RejectRequest = { reason: string };
