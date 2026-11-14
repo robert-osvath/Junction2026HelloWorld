@@ -75,7 +75,7 @@ Out of scope for now: pitch, "edge" features (intent ordering, forward-demand da
 
 ## Stack
 Python 3.12 + FastAPI + pydantic v2, MCP Python SDK, MariaDB (catalog, vector search,
-system-versioned audit table), Next.js (approval UI), Modal (hosting), CRACI (CI, `runs-on: craci`).
+system-versioned audit table), Next.js (approval UI), Modal (hosting), GitHub Actions (CI).
 Models: Claude Haiku / Gemini Flash (fast jurors), Claude Sonnet (Tier 2), optional Featherless open-weight.
 
 ## Repo layout (T0 creates this)
@@ -92,7 +92,7 @@ web/              P4: Next.js approval inbox                            (T14)
 db/               docker-compose MariaDB + migrations
 data/             downloaded files (gitignored)
 tests/
-.github/workflows P4: CI on CRACI + Modal deploy                        (T15)
+.github/workflows P4: CI (GitHub Actions) + Modal deploy               (T15)
 ```
 
 ## Contracts (final, T0 – source of truth is `contracts/models.py`, fixtures in `contracts/fixtures/`)
@@ -137,7 +137,7 @@ fixtures served via `app.mocks.load(name)`.
 ## Progress (update when a ticket merges)
 T0 contracts + skeleton: on main. T13 audit log: merged (PR #2) — use `app.orders.audit.get_store().append(...)`.
 T12 order service: merged (PR #4) — real `/orders*`; mandates from fixtures (`app/orders/mandates.py`); jury is still the mock with a total-vs-limits rule until T6.
-T15 CI: `.github/workflows/ci.yml` (pytest + CycloneDX SBOM artifact on `craci`; repo var `CI_RUNNER` overrides).
+T15 CI: `.github/workflows/ci.yml` on GitHub-hosted runners: pytest + CycloneDX SBOM artifact, web lint + build. CRACI dropped 2026-11-14 (no runner registered). T14 approval inbox: merged (PR #6), skeleton UI, redesign pending.
 
 ## Milestones
 Sat 10:00 High tickets work in isolation · Sat 14:00 happy path end to end ·

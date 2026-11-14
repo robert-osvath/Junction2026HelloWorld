@@ -10,8 +10,7 @@ permissions:
 
 jobs:
   api:
-    # CRACI runner per T15; set repo variable CI_RUNNER=ubuntu-latest to fall back if it's unavailable
-    runs-on: ${{ vars.CI_RUNNER || 'craci' }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -26,3 +25,18 @@ jobs:
           name: sbom
           path: sbom.cdx.json
 
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
