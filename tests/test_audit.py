@@ -161,3 +161,9 @@ def test_mariadb_pooled_connection_survives_server_kill():
         cur.execute(f"KILL {int(cid)}")  # simulate the cloud proxy dropping an idle connection
     store.append(order_id="o", actor="aimo", action="x", payload={}, human_summary="after kill")
     assert store.verify().ok
+
+
+def test_db_connections_time_out_instead_of_hanging_on_a_dead_socket():
+    from app.db import connect_args
+    a = connect_args("mysql://aimo:aimo@127.0.0.1:3306/aimo")
+    assert (a["connect_timeout"], a["read_timeout"], a["write_timeout"]) == (10, 15, 15)
