@@ -8,7 +8,7 @@
       "language": "en",
       "prompt": {
         "custom_llm": null,
-        "ignore_default_personality": false,
+        "ignore_default_personality": true,
         "knowledge_base": [],
         "llm": "gemini-3.8-flash",
         "max_tokens": 80,
