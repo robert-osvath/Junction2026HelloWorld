@@ -350,14 +350,16 @@ def explain_no_offer(product_id: str, need: Need, delivery_date: date) -> str:
     5-minute cache, so right after get_offers this costs no extra Valio calls."""
     conn = catalog_store.connect()
     try:
-        if product_id not in catalog_store.offer_rows(conn, [product_id]):
-            return f"Product {product_id} is not in the catalog."
+        row = catalog_store.offer_rows(conn, [product_id]).get(product_id)
     finally:
         conn.close()
+    if row is None:
+        return f"Product {product_id} is not in the catalog."
     try:
         client = get_client()
         price = client.prices([product_id], delivery_date).get(product_id)
-        if price is None or not price.catalog_price_eur or not price.comparison_price_eur:
+        if (price is None or price.catalog_price_eur is None or price.comparison_price_eur is None
+                or price.catalog_price_eur <= 0 or price.comparison_price_eur <= 0):
             return f"Valio Aimo has no usable price for product {product_id}."
         unit = price.comparison_unit
         if need.unit != "pcs" and unit in _NEED_UNIT and _NEED_UNIT[unit] != need.unit:
@@ -365,7 +367,11 @@ def explain_no_offer(product_id: str, need: Need, delivery_date: date) -> str:
                     f"is in {need.unit}. Order it in {_NEED_UNIT[unit]} instead.")
         if unit not in _NEED_UNIT:
             return f"Product {product_id} has no per-litre or per-kilogram price ({unit or 'none'}), so its pack size can't be computed."
-        if product_id not in client.availability([product_id], delivery_date):
+        if need.unit == "pcs" and row["sales_unit"] != row["base_unit"] and not row.get("size_in_base_units"):
+            return (f"Product {product_id} has no known number of pieces per sales unit ({row['sales_unit']}); "
+                    f"order it in {_NEED_UNIT[unit]} instead.")
+        avail = client.availability([product_id], delivery_date).get(product_id)
+        if avail is None or avail.available_date is None:
             return f"Product {product_id} has no delivery schedule for {delivery_date.isoformat()}."
     except AimoError:
         return "Valio Aimo API unavailable."

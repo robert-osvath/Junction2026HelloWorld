@@ -41,3 +41,37 @@ def test_create_draft_returns_the_reason(fake_client):
         "deliver_by": D.isoformat(),
     })
     assert r.status_code == 422 and r.json()["detail"].startswith("Unit mismatch")
+
+
+def test_remaining_reasons_mirror_t4(monkeypatch, tmp_path):
+    import os, shutil
+    copy = tmp_path / "catalog.db"  # this test deletes rows: never touch the session DB
+    shutil.copy(os.environ["CATALOG_DB"], copy)
+    monkeypatch.setenv("CATALOG_DB", str(copy))
+    from app.catalog.aimo import AvailabilityInfo, PriceInfo
+
+    class Stub:
+        def __init__(self, price, avail):
+            self.price, self.avail = price, avail
+
+        def prices(self, ids, d):
+            return {ids[0]: self.price} if self.price else {}
+
+        def availability(self, ids, d):
+            return {ids[0]: self.avail} if self.avail else {}
+
+    ok_price = PriceInfo(product_id="463038", catalog_price_eur=31.31, comparison_price_eur=1.57, comparison_unit="L")
+    scheduled_no_date = AvailabilityInfo(product_id="463038", logistic_model="Terminal")
+
+    def explain(price, avail, unit="L", pid="463038"):
+        monkeypatch.setattr(experience, "get_client", lambda: Stub(price, avail))
+        return experience.explain_no_offer(pid, need(unit), D)
+
+    assert "no usable price" in explain(ok_price.model_copy(update={"catalog_price_eur": -1.0}), None)
+    assert "no delivery schedule" in explain(ok_price, None)
+    assert "no delivery schedule" in explain(ok_price, scheduled_no_date)  # logisticModel set, no date
+    assert "no per-litre or per-kilogram" in explain(ok_price.model_copy(update={"comparison_unit": "KPL"}), None)
+    # Eila is sold per KI (2 x ST); a pcs request works only when the sales-unit size is known
+    with experience.catalog_store.connect() as conn:
+        conn.execute("DELETE FROM product_units WHERE product_id = '463038'")
+    assert "no known number of pieces" in explain(ok_price, None, unit="pcs")
