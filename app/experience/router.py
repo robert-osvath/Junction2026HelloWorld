@@ -341,6 +341,37 @@ async def prepare_decision(request: PrepareDecisionRequest) -> Order:
     ))
 
 
+_UNIT_LABEL = {"L": "litres (L)", "KG": "kilograms (kg)"}
+_NEED_UNIT = {"L": "L", "KG": "kg"}
+
+
+def explain_no_offer(product_id: str, need: Need, delivery_date: date) -> str:
+    """Why T4 produced no offer for one product, in words a buyer can act on. Uses the client's
+    5-minute cache, so right after get_offers this costs no extra Valio calls."""
+    conn = catalog_store.connect()
+    try:
+        if product_id not in catalog_store.offer_rows(conn, [product_id]):
+            return f"Product {product_id} is not in the catalog."
+    finally:
+        conn.close()
+    try:
+        client = get_client()
+        price = client.prices([product_id], delivery_date).get(product_id)
+        if price is None or not price.catalog_price_eur or not price.comparison_price_eur:
+            return f"Valio Aimo has no usable price for product {product_id}."
+        unit = price.comparison_unit
+        if need.unit != "pcs" and unit in _NEED_UNIT and _NEED_UNIT[unit] != need.unit:
+            return (f"Unit mismatch: product {product_id} is priced per {_UNIT_LABEL[unit]}, but the request "
+                    f"is in {need.unit}. Order it in {_NEED_UNIT[unit]} instead.")
+        if unit not in _NEED_UNIT:
+            return f"Product {product_id} has no per-litre or per-kilogram price ({unit or 'none'}), so its pack size can't be computed."
+        if product_id not in client.availability([product_id], delivery_date):
+            return f"Product {product_id} has no delivery schedule for {delivery_date.isoformat()}."
+    except AimoError:
+        return "Valio Aimo API unavailable."
+    return f"The selected product {product_id} has no usable live price or availability."
+
+
 def build_offers(req: OffersRequest) -> list[Offer]:
     """Live offers through P1's T4 offer builder: the same path as POST /offers."""
     conn = catalog_store.connect()
@@ -383,7 +414,8 @@ async def create_draft(request: CreateDraftRequest) -> Order:
         delivery_date=request.deliver_by,
     ))
     if not offers:
-        raise HTTPException(status_code=422, detail="The selected product has no usable live price or availability")
+        raise HTTPException(status_code=422,
+                            detail=explain_no_offer(request.product_id, need, request.deliver_by))
     return order_service.create(OrderRequest(mandate_id=mandate.id, need=need, lines=offers))
 
 
