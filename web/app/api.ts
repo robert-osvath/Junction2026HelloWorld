@@ -1,4 +1,3 @@
-
 export type Evidence = { stock: "verified" | "estimated" | "none"; allergens: "declared" | "missing"; reliability: number | null };
 export type Offer = {
   product_id: string; name: string; sales_unit: string; units_needed: number; unit_price_eur: number;

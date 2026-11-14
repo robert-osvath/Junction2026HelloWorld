@@ -12,7 +12,8 @@ from starlette.routing import Match, Mount
 
 COOKIE = "aimo_demo"
 MAX_AGE = 7 * 24 * 3600
-FAIL_LIMIT, FAIL_WINDOW = 10, 60.0  # short window, no hard lockout: behind Vercel all users may share one IP
+FAIL_LIMIT, FAIL_WINDOW = 10, 60.0  # per client, short window, no hard lockout
+GLOBAL_FAIL_LIMIT = 100  # all clients together: caps brute force even when the client key is spoofed
 _fails: dict[str, deque] = defaultdict(deque)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -39,14 +40,24 @@ def token_ok(p: str, token: str | None, now: float | None = None) -> bool:
 
 
 def _ip(request: Request) -> str:
-    return request.client.host if request.client else "?"
+    # behind Vercel + Modal the socket peer is a proxy shared by every visitor; Vercel overwrites
+    # X-Forwarded-For with the real client IP. Spoofable on direct calls, hence the global cap too.
+    fwd = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+    return fwd or (request.client.host if request.client else "?")
+
+
+def _recent(key: str) -> int:
+    q, cutoff = _fails[key], time.monotonic() - FAIL_WINDOW
+    while q and q[0] < cutoff:
+        q.popleft()
+    if not q:
+        del _fails[key]  # keep the dict bounded by clients seen in the last minute
+        return 0
+    return len(q)
 
 
 def _throttled(ip: str) -> bool:
-    q, cutoff = _fails[ip], time.monotonic() - FAIL_WINDOW
-    while q and q[0] < cutoff:
-        q.popleft()
-    return len(q) >= FAIL_LIMIT
+    return _recent(ip) >= FAIL_LIMIT or _recent("*") >= GLOBAL_FAIL_LIMIT
 
 
 def _check_pass(request: Request, candidate: str) -> bool | None:
@@ -56,7 +67,9 @@ def _check_pass(request: Request, candidate: str) -> bool | None:
         return None
     if hmac.compare_digest(candidate.encode(), passphrase().encode()):
         return True
-    _fails[ip].append(time.monotonic())
+    now = time.monotonic()
+    _fails[ip].append(now)
+    _fails["*"].append(now)
     return False
 
 
@@ -93,7 +106,7 @@ class Unlock(BaseModel):
 
 
 @router.post("/unlock")
-def unlock(body: Unlock, request: Request, response: Response) -> dict:
+def unlock(body: Unlock, request: Request, response: Response):
     p = passphrase()
     if p:  # gate off: unlock always succeeds so the web UI flow still works locally
         ok = _check_pass(request, body.passphrase)
@@ -101,7 +114,8 @@ def unlock(body: Unlock, request: Request, response: Response) -> dict:
             return JSONResponse({"detail": "Too many attempts, wait a minute"}, status_code=429)
         if not ok:
             return JSONResponse({"detail": "Wrong passphrase"}, status_code=401)
-    response.set_cookie(COOKIE, make_token(p), max_age=MAX_AGE, httponly=True, secure=True, samesite="lax", path="/")
+    # gate off: a placeholder that never validates, so it cannot outlive a later-enabled gate
+    response.set_cookie(COOKIE, make_token(p) if p else "open", max_age=MAX_AGE, httponly=True, secure=True, samesite="lax", path="/")
     return {"unlocked": True}
 
 

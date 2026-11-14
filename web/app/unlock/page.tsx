@@ -2,8 +2,14 @@
 import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
-// Only same-site absolute paths: "/x" yes; "//host" and "/\host" no.
-const safeNext = (n: string | null) => (n && n.startsWith("/") && !n.startsWith("//") && !n.startsWith("/\\") ? n : "/");
+// Only same-origin paths: the URL parser (not a prefix check) decides, so "//x", "/\\x", "/\t/x" fall back to "/".
+function safeNext(n: string | null) {
+  if (!n?.startsWith("/")) return "/";
+  try {
+    const u = new URL(n, window.location.origin);
+    return u.origin === window.location.origin ? u.pathname + u.search + u.hash : "/";
+  } catch { return "/"; }
+}
 
 function Form() {
   const next = safeNext(useSearchParams().get("next"));

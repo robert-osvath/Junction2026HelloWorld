@@ -78,3 +78,13 @@ def test_throttle_counts_unlock_and_header_failures(gated):
 def test_unlock_works_when_gate_off():
     c = TestClient(app, base_url="https://testserver")
     assert c.post("/auth/unlock", json={"passphrase": "anything"}).status_code == 200
+    assert not auth.token_ok(PASS, c.cookies.get("aimo_demo"))  # useless once a gate is enabled
+
+
+def test_throttle_is_per_client_with_global_cap(gated, monkeypatch):
+    for _ in range(auth.FAIL_LIMIT):
+        gated.post("/auth/unlock", json={"passphrase": "nope"}, headers={"X-Forwarded-For": "1.1.1.1"})
+    assert gated.post("/auth/unlock", json={"passphrase": PASS}, headers={"X-Forwarded-For": "1.1.1.1"}).status_code == 429
+    assert gated.post("/auth/unlock", json={"passphrase": PASS}, headers={"X-Forwarded-For": "2.2.2.2"}).status_code == 200
+    monkeypatch.setattr(auth, "GLOBAL_FAIL_LIMIT", auth.FAIL_LIMIT)  # rotating spoofed IPs still hit the global cap
+    assert gated.post("/auth/unlock", json={"passphrase": PASS}, headers={"X-Forwarded-For": "3.3.3.3"}).status_code == 429

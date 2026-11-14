@@ -88,7 +88,7 @@ app/              one FastAPI app, one router per lane
   mocks/          fixture responses used until each lane is real
 mcp_server/       P3: MCP tools wrapping the REST API                   (T9)
 agent/            P3: buyer agent + demo runner                         (T10–T11)
-web/              P4: Next.js approval inbox                            (T14)
+web/              P4: Next.js site: landing, /approvals, /unlock; public/vimo cockpit, public/game (T14, T16)
 db/               docker-compose MariaDB + migrations
 data/             downloaded files (gitignored)
 tests/
