@@ -18,6 +18,13 @@ docker compose -f db/docker-compose.yml up -d   # MariaDB 11.4 on :3306 (aimo/ai
 # DB_URL in .env -> audit log in MariaDB (system-versioned); unset -> in-memory. DB_URL_TEST runs the MariaDB audit test.
 ```
 
+## Approval inbox (T14)
+```bash
+uv run uvicorn app.main:app --port 8000   # API (CORS origins: CORS_ORIGINS, default http://localhost:3000)
+uv run scripts/seed_demo.py               # creates placed / pending_approval / rejected demo orders
+cd web && cp .env.example .env.local && npm install && npm run dev   # http://localhost:3000
+```
+
 ## Lanes
 Each lane owns one router and replaces its mock with real code:
 `app/catalog/router.py` (P1), `app/jury/router.py` (P2), `app/orders/router.py` (P4).
