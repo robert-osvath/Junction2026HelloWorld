@@ -5,6 +5,8 @@ export type Offer = {
   logistic_model: string; evidence: Evidence;
 };
 export type Need = { text: string; product_intent: string; quantity: number; unit: "L" | "kg" | "pcs"; deliver_by: string; extra_constraints: string[] };
+export type CatalogItem = { product_id: string; name: string; vendor_name: string | null; sales_unit: string; category: string | null; claims: string[]; allergens_contains: string[]; allergens_may_contain: string[]; allergen_data: boolean };
+export type Mandate = { id: string; buyer_name: string; buyer_type: "hotel" | "hospital" | "restaurant"; budget_per_order_eur: number; auto_approve_limit_eur: number; required_claims: string[]; banned_allergens: string[]; strict_allergens: boolean; substitutes_allowed: boolean };
 export type Verdict = { juror: string; decision: "approve" | "escalate" | "reject"; confidence: number; reasons: string[]; model: string | null };
 export type Status = "pending_approval" | "placed" | "substitutes_proposed" | "rejected";
 export type Order = {
@@ -22,7 +24,12 @@ export async function api<T>(path: string, method = "GET", body?: unknown): Prom
   });
   if (!r.ok) {
     const body = await r.json().catch(() => null);
-    throw new Error(typeof body?.detail === "string" ? body.detail : `${r.status} ${r.statusText}`);
+    const d = body?.detail;
+    // FastAPI sends a string for our own errors and a list of {loc, msg} for request validation errors
+    const msg = typeof d === "string" ? d
+      : Array.isArray(d) ? d.map((e: { loc?: unknown[]; msg?: string }) => `${String(e.loc?.at(-1) ?? "input")}: ${e.msg ?? "invalid"}`).join("; ")
+      : `${r.status} ${r.statusText}`;
+    throw new Error(msg);
   }
   return r.json();
 }
