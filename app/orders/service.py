@@ -57,9 +57,10 @@ def create(req: OrderRequest) -> Order:
 
 
 def audit_verdicts(oid: str, verdicts: list[Verdict]) -> None:
-    for v in verdicts:
-        _audit(oid, f"juror:{v.juror}", f"verdict.{v.decision}", v.model_dump(mode="json"),
-               f"{v.juror} juror says {v.decision} ({v.confidence:.0%}): {'; '.join(v.reasons)}")
+    get_store().append_many([
+        dict(order_id=oid, actor=f"juror:{v.juror}", action=f"verdict.{v.decision}", payload=v.model_dump(mode="json"),
+             human_summary=f"{v.juror} juror says {v.decision} ({v.confidence:.0%}): {'; '.join(v.reasons)}")
+        for v in verdicts])
 
 
 def finalize(oid: str, mandate: Mandate, need: Need, lines: list[Offer], verdicts: list[Verdict],

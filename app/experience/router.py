@@ -442,18 +442,14 @@ def build_offers(req: OffersRequest) -> list[Offer]:
         conn.close()
 
 
-# The duplicate check and the order creation must not interleave: the route runs in a worker thread.
-# shortcut: one lock serialises all drafts (a few seconds each); per-buyer locks if many buyers order at once.
+# The route runs in worker threads: the duplicate check and the "in flight" marker are atomic, the slow
+# jury work runs outside the lock so different drafts (e.g. an event's "Order all") proceed in parallel.
 _DRAFT_LOCK = threading.Lock()
+_IN_FLIGHT: set[tuple] = set()
 
 
 @router.post("/create-draft", response_model=Order)
 def create_draft(request: CreateDraftRequest) -> Order:
-    with _DRAFT_LOCK:
-        return _create_draft(request)
-
-
-def _create_draft(request: CreateDraftRequest) -> Order:
     """Create an order draft from an explicitly selected catalog product.
 
     Price, availability, and package quantity are rebuilt from the Valio Aimo
@@ -468,6 +464,21 @@ def _create_draft(request: CreateDraftRequest) -> Order:
     mandate = policies.resolve(request.policy_id) if request.policy_id else policies.current(request.buyer_name)
     if mandate is None:
         raise HTTPException(status_code=404, detail=f"Unknown policy {request.policy_id!r}.")
+    key = (mandate.buyer_name.strip().casefold(), request.product_intent.strip().casefold(), request.quantity,
+           request.unit, request.deliver_by)
+    with _DRAFT_LOCK:
+        if key in _IN_FLIGHT:
+            raise HTTPException(status_code=409, detail="A matching order is already being drafted.")
+        _check_duplicate(request, mandate)
+        _IN_FLIGHT.add(key)
+    try:
+        return _draft(request, mandate)
+    finally:
+        with _DRAFT_LOCK:
+            _IN_FLIGHT.discard(key)
+
+
+def _check_duplicate(request: CreateDraftRequest, mandate: Mandate) -> None:
     duplicate = next((order for order in get_order_store().list()
                       if ((existing := policies.resolve(order.mandate_id)) is not None
                           and existing.buyer_name.strip().casefold() == mandate.buyer_name.strip().casefold()
@@ -485,6 +496,9 @@ def _create_draft(request: CreateDraftRequest) -> Order:
             human_summary=f"Duplicate order prevented; existing {duplicate.id} is {duplicate.status}.",
         )
         raise HTTPException(status_code=409, detail=f"A matching order already exists ({duplicate.id}, {duplicate.status}).")
+
+
+def _draft(request: CreateDraftRequest, mandate: Mandate) -> Order:
     need = Need(
         text=f"{request.quantity:g} {request.unit} of {request.product_intent}",
         product_intent=request.product_intent,

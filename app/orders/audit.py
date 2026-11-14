@@ -66,10 +66,16 @@ class MemoryStore:
         self._lock = threading.Lock()
 
     def append(self, **kw) -> AuditEvent:
+        return self.append_many([kw])[0]
+
+    def append_many(self, events: list[dict]) -> list[AuditEvent]:
+        out = []
         with self._lock:
-            e = make_event(self._rows[-1][0].hash if self._rows else GENESIS, **kw)
-            self._rows.append((e, json.loads(json.dumps(kw["payload"], default=str))))  # copy, same as MariaDB
-            return e
+            for kw in events:
+                e = make_event(self._rows[-1][0].hash if self._rows else GENESIS, **kw)
+                self._rows.append((e, json.loads(json.dumps(kw["payload"], default=str))))  # copy, same as MariaDB
+                out.append(e)
+        return out
 
     def events(self, order_id: str | None = None) -> list[AuditEvent]:
         return [e for e, _ in self._rows if order_id is None or e.order_id == order_id]
@@ -110,6 +116,10 @@ class MariaDBStore:
         return pooled(self._args)
 
     def append(self, **kw) -> AuditEvent:
+        return self.append_many([kw])[0]
+
+    def append_many(self, events: list[dict]) -> list[AuditEvent]:
+        """Chain several events under one lock and one INSERT: each round trip to the cloud DB is ~0.2 s."""
         # one named lock serialises appenders; FOR UPDATE gap locks deadlocked under concurrent appends
         with self.conn() as c, c.cursor() as cur:
             cur.execute("SELECT GET_LOCK('audit_append', 10)")
@@ -118,14 +128,18 @@ class MariaDBStore:
             try:
                 cur.execute("SELECT hash FROM audit_events ORDER BY seq DESC LIMIT 1")
                 row = cur.fetchone()
-                e = make_event(row[0] if row else GENESIS, **kw)
-                cur.execute(f"INSERT INTO audit_events ({COLS}) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                            (e.id, e.ts.astimezone(UTC).replace(tzinfo=None), e.order_id, e.actor, e.action,
-                             json.dumps(kw["payload"], default=str), e.payload_hash, e.prev_hash, e.hash,
-                             e.human_summary))
+                prev, out, rows = row[0] if row else GENESIS, [], []
+                for kw in events:
+                    e = make_event(prev, **kw)
+                    prev = e.hash
+                    out.append(e)
+                    rows.append((e.id, e.ts.astimezone(UTC).replace(tzinfo=None), e.order_id, e.actor, e.action,
+                                 json.dumps(kw["payload"], default=str), e.payload_hash, e.prev_hash, e.hash,
+                                 e.human_summary))
+                cur.executemany(f"INSERT INTO audit_events ({COLS}) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)", rows)
             finally:
                 cur.execute("SELECT RELEASE_LOCK('audit_append')")
-            return e
+            return out
 
     def _rows(self, order_id: str | None = None):
         where = order_id is not None

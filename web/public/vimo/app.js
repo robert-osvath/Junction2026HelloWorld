@@ -367,9 +367,16 @@ function orderLineText(order) {
   return `Order ${order.id.replace("order-", "").slice(0, 8)}: ${order.need?.text}${l ? ` → ${l.name}, ${eur(l.total_eur)}` : ""}`;
 }
 
+function eventOrderSummary() {
+  const statuses = (eventPlan?.lines || []).filter((l) => l.result).map((l) => l.result.order?.status || "failed");
+  const count = (st) => statuses.filter((x) => x === st).length;
+  return `${count("placed")} placed, ${count("pending_approval")} need approval, ${count("substitutes_proposed")} need a substitute decision, ${count("failed") + count("rejected")} not ordered.`;
+}
+
 function renderEventPlan() {
   const lines = eventPlan?.lines || [];
-  $("#event-summary").textContent = [eventPlan?.summary, eventPlan?.orderSummary && `Orders: ${eventPlan.orderSummary}`].filter(Boolean).join(" ");
+  const ordered = lines.some((l) => l.result) ? eventOrderSummary() : "";
+  $("#event-summary").textContent = [eventPlan?.summary, ordered && `Orders: ${ordered}`].filter(Boolean).join(" ");
   $("#event-lines").replaceChildren(...lines.map((line) => {
     const row = el("div", "substitute-row");
     const info = el("div");
@@ -388,15 +395,22 @@ function renderEventPlan() {
     const side = el("div");
     side.append(el("span", `status ${cls}`, label));
     if (line.result?.order?.status === "pending_approval") {
-      const review = el("button", "secondary", "Review");
-      review.type = "button";
-      review.addEventListener("click", () => {
-        state.approval = line.result.order;
-        renderOrder(line.result.order);
-        $("#event-dialog").close();
-        openDecisionConfirmation(null, `Event order: “${line.result.order.need?.text}”`);
-      });
-      side.append(review);
+      for (const [decision, label, cls] of [["approve", "Approve", "primary"], ["reject", "Reject", "secondary"]]) {
+        const button = el("button", cls, label);
+        button.type = "button";
+        button.addEventListener("click", async () => {
+          for (const b of side.querySelectorAll("button")) b.disabled = true;
+          state.approval = line.result.order;  // recordBuyerDecision acts on the order on screen
+          try {
+            const updated = await recordBuyerDecision(decision);
+            if (updated) line.result.order = updated;
+          } catch (error) {
+            addEvent("Could not record the decision", error.message);
+          }
+          renderEventPlan();
+        });
+        side.append(button);
+      }
     }
     row.append(info, side);
     return row;
@@ -418,37 +432,40 @@ async function orderEventPlan() {
   if (eventOrdering) return {ordered: [], message: "The event orders are already being placed."};
   eventOrdering = true;
   if (!$("#event-dialog").open) $("#event-dialog").showModal();
-  const results = [];
-  try {
-    // one at a time: each draft re-runs live pricing and the full jury, and the duplicate guard sees the previous one
-    for (const line of eventPlan.lines.filter((l) => l.order_intent && !l.result)) {
-      setWorking(`Ordering ${line.order_quantity} ${line.order_unit} ${line.order_intent}…`);
-      renderEventPlan();
-      try {
-        const order = await createCatalogDraft({
-          product_id: line.offer?.product_id, product_intent: line.order_intent, quantity: line.order_quantity,
-          unit: line.order_unit, deliver_by: line.required_by,
-          exception_reason: line.status === "substitute" ? `Recipe substitute for ${line.product_intent}: ${line.substitution_note}` : "",
-        });
-        line.result = {order};
-        rememberOrder(order);
-      } catch (error) {
-        line.result = {error: error.message};
-      }
-      results.push({ingredient: line.product_intent, ordered: line.order_intent, ...(line.result.order
-        ? {status: line.result.order.status, total_eur: line.result.order.lines?.[0]?.total_eur ?? null}
-        : {status: "failed", error: line.result.error})});
+  const queue = eventPlan.lines.filter((l) => l.order_intent && !l.result);
+  setWorking(`Ordering ${queue.length} event item${queue.length === 1 ? "" : "s"}…`);
+  renderEventPlan();
+  const orderLine = async (line) => {
+    try {
+      const order = await createCatalogDraft({
+        product_id: line.offer?.product_id, product_intent: line.order_intent, quantity: line.order_quantity,
+        unit: line.order_unit, deliver_by: line.required_by,
+        exception_reason: line.status === "substitute" ? `Recipe substitute for ${line.product_intent}: ${line.substitution_note}` : "",
+      });
+      line.result = {order};
+      rememberOrder(order);
+    } catch (error) {
+      line.result = {error: error.message};
     }
+    renderEventPlan();  // each row updates as soon as its order is decided
+  };
+  try {
+    // 3 at a time: each draft re-runs live pricing and the full jury (the server keeps duplicates out)
+    const pending = [...queue];
+    await Promise.all(Array.from({length: Math.min(3, pending.length)}, async () => {
+      while (pending.length) await orderLine(pending.shift());
+    }));
   } finally {
     eventOrdering = false;
   }
+  const results = queue.map((line) => ({ingredient: line.product_intent, ordered: line.order_intent, ...(line.result?.order
+    ? {status: line.result.order.status, total_eur: line.result.order.lines?.[0]?.total_eur ?? null}
+    : {status: "failed", error: line.result?.error})}));
   const orders = eventPlan.lines.map((l) => l.result?.order).filter(Boolean);
   // voice approval acts on state.approval: point it at the first order that still needs the buyer
   const focus = orders.find((o) => o.status === "pending_approval") || orders.at(-1);
   if (focus) { state.approval = focus; renderOrder(focus); startBackendDecisionPolling(); }
-  const count = (s) => results.filter((r) => r.status === s).length;
-  const summary = `${count("placed")} placed, ${count("pending_approval")} need approval, ${count("substitutes_proposed")} need a substitute decision, ${count("failed") + count("rejected")} not ordered.`;
-  eventPlan.orderSummary = summary;
+  const summary = eventOrderSummary();
   renderEventPlan();
   addEvent("Event orders", summary);
   setListening();
