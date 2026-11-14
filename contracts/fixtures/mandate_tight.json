@@ -1,0 +1,11 @@
+{
+  "id": "mandate-hotel-tight",
+  "buyer_name": "Hotel Kalevala Helsinki",
+  "buyer_type": "hotel",
+  "budget_per_order_eur": 2500.0,
+  "auto_approve_limit_eur": 1000.0,
+  "required_claims": ["FREE_FROM_LACTOSE"],
+  "banned_allergens": [],
+  "strict_allergens": false,
+  "substitutes_allowed": true
+}
