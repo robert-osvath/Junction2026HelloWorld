@@ -14,7 +14,8 @@ app = modal.App("aimo-trusted-trade", image=image)
 
 
 # max_containers=1: approve/reject are serialised by an in-process lock (see app/orders/service.py)
-@app.function(secrets=[modal.Secret.from_name("aimo-api")], max_containers=1)
+# min_containers=1: keep one warm for the demo; a cold start + first cloud-DB connections take ~10 s
+@app.function(secrets=[modal.Secret.from_name("aimo-api")], min_containers=1, max_containers=1)
 @modal.concurrent(max_inputs=50)
 @modal.asgi_app()
 def api():

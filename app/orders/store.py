@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 
 import pymysql
 
-from app.db import connect_args
+from app.db import connect_args, pooled
 
 from contracts import Order
 
@@ -47,7 +47,7 @@ class MariaDBStore:
             cur.execute(SCHEMA)
 
     def conn(self):
-        return pymysql.connect(**self._args)
+        return pooled(self._args)
 
     def save(self, order: Order) -> None:
         with self.conn() as c, c.cursor() as cur:  # upsert; created_at is kept on update

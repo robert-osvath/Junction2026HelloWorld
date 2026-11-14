@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 
 import pymysql
 
-from app.db import connect_args
+from app.db import connect_args, pooled
 
 from contracts import AuditEvent, AuditVerify
 
@@ -96,7 +96,7 @@ class MariaDBStore:
             cur.execute(SCHEMA)
 
     def conn(self):
-        return pymysql.connect(**self._args)
+        return pooled(self._args)
 
     def append(self, **kw) -> AuditEvent:
         # one named lock serialises appenders; FOR UPDATE gap locks deadlocked under concurrent appends
