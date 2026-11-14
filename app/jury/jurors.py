@@ -314,6 +314,7 @@ def evaluate_with_gemini_decision(
     est_input_tokens = max(120, len(prompt_text) // 4)
 
     h_spec, h_deliv, h_cost = _evaluate_lines_heuristic(mandate, need, offers, catalog_items, model_name)
+    used_live = False  # True only when the Decisions API answered and its answers were merged
 
     if live_api and tier0.decision != "reject":
         api_key = _get_env_key("GEMINI_API_KEY", "GOOGLE_API_KEY")
@@ -394,8 +395,14 @@ def evaluate_with_gemini_decision(
                             "confidence": round(float(getattr(ans_cost, "confidence", h_cost.confidence)), 3),
                         }
                     )
+                used_live = True
             except Exception as exc:
                 log.warning("gemini-decision-1 live call failed (%s); using calibrated fallback", exc)
+
+    if not used_live:
+        # make the fallback visible in the API response, not only in logs
+        h_spec, h_deliv, h_cost = (v.model_copy(update={"model": f"{model_name}/fallback"})
+                                   for v in (h_spec, h_deliv, h_cost))
 
     verdicts = [tier0, h_spec, h_deliv, h_cost]
     jury_res = aggregate_verdicts(mandate, offers, verdicts)
