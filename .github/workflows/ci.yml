@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  api:
+    # CRACI runner per T15; set repo variable CI_RUNNER=ubuntu-latest to fall back if it's unavailable
+    runs-on: ${{ vars.CI_RUNNER || 'craci' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --locked
+      - run: uv run pytest -q
+      - name: CycloneDX SBOM (runtime deps only)
+        run: |
+          uv export --locked --no-dev --no-hashes --format requirements-txt -o requirements.txt
+          uv run cyclonedx-py requirements --of JSON -o sbom.cdx.json requirements.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.cdx.json
+
