@@ -7,9 +7,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-load_dotenv()  # before app imports read DB_URL
+load_dotenv()  # before app imports read DB_URL and local API credentials
 
 from app.catalog.router import router as catalog
+from app.experience.router import router as experience
 from app.jury.router import router as jury
 from app.orders.router import router as orders
 
@@ -28,7 +29,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-for r in (catalog, jury, orders):
+for r in (catalog, jury, orders, experience):
     app.include_router(r)
 
 
@@ -49,3 +50,17 @@ def mount_game(target: FastAPI, game_dir: Path) -> bool:
 
 
 mount_game(app, GAME_DIR)
+
+COCKPIT_DIR = Path(__file__).resolve().parent.parent / "cockpit"  # Vimo buyer cockpit (local + desktop app)
+
+
+def mount_cockpit(target: FastAPI, cockpit_dir: Path) -> bool:
+    """Serve the Vimo cockpit at / from the same origin as the API. Mounted last: a mount at / matches
+    every path, so API routes and /game must be registered first. Absent in the Modal image -> skipped."""
+    if not cockpit_dir.is_dir():
+        return False
+    target.mount("/", StaticFiles(directory=cockpit_dir, html=True), name="buyer-cockpit")
+    return True
+
+
+mount_cockpit(app, COCKPIT_DIR)

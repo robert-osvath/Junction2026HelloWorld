@@ -1,0 +1,10 @@
+{
+    "agents": [
+        {
+            "config": "agent_configs/vimo-live.json",
+            "id": "agent_7401m7cxmj2cf7q83x0a2h2eb8c2",
+            "branch_id": "agtbrch_7601m7cxmk1nfbqrj060s009vehy",
+            "version_id": "agtvrsn_4901m7cz8evde0zr2b2swdx8j0gw"
+        }
+    ]
+}
