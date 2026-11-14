@@ -5,7 +5,7 @@ import { day, dueLabel, eur, helsinkiToday, LABEL, shortId, total, WAITING, who,
 import ApprovalDialog from "../components/ApprovalDialog";
 import { useNow, usePoll, useToast } from "../components/hooks";
 import Icon from "../components/Icon";
-import { useSavedRules } from "../components/Shell";
+import { useSavedRules } from "../components/rules";
 import Toast from "../components/Toast";
 
 const initials = (s: string) => s.replace(/^Juror: /, "").split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? "").join("");

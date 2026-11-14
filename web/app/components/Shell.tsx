@@ -1,25 +1,19 @@
 "use client";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Suspense, useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { api, type Order, type Status } from "../api";
 import Icon, { type IconName } from "./Icon";
+import NewPurchase from "./NewPurchase";
+import { useSavedRules } from "./rules";
 
 type Nav = { href: string; label: string; icon: IconName; count?: Status };
 const NAV: Nav[] = [
   { href: "/", label: "Overview", icon: "home" },
+  { href: "/setup", label: "Getting started", icon: "sparkles" },
   { href: "/approvals", label: "Approval inbox", icon: "check", count: "pending_approval" },
   { href: "/timeline", label: "Audit timeline", icon: "history" },
 ];
-
-// Same-origin with /vimo, so the buyer rules Vimo saved there are readable here.
-const RULES_KEY = "aimo-rules";
-const subscribe = (cb: () => void) => { window.addEventListener("storage", cb); return () => window.removeEventListener("storage", cb); };
-const readRules = () => { try { return localStorage.getItem(RULES_KEY) ?? ""; } catch { return ""; } };
-export function useSavedRules(): { buyer?: string; policy_id?: string } {
-  const raw = useSyncExternalStore(subscribe, readRules, () => "");
-  try { return raw ? JSON.parse(raw) : {}; } catch { return {}; }
-}
 
 const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]!.toUpperCase()).join("") || "?";
 const isActive = (path: string | null, href: string) => path !== null && (href === "/" ? path === "/" : path === href || path.startsWith(`${href}/`));
@@ -49,6 +43,7 @@ export default function Shell({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const [orders, setOrders] = useState<Order[]>([]);
   const [gate, setGate] = useState(false);
+  const [purchase, setPurchase] = useState<string | null>(null);  // null: closed; otherwise the search to start from
   const { buyer } = useSavedRules();
 
   useEffect(() => {
@@ -103,7 +98,7 @@ export default function Shell({ children }: { children: ReactNode }) {
           <span className="avatar peach" aria-hidden="true">{initials(buyer || "Buyer")}</span>
           <div>
             <strong>{buyer || "No buyer rules yet"}</strong>
-            <small>{buyer ? "Buyer" : "Set them with Vimo"}</small>
+            <small>{buyer ? "Buyer" : <Link href="/setup" onClick={close}>Set them up</Link>}</small>
           </div>
           {gate && <button className="icon-button" onClick={lock} aria-label="Lock the demo" title="Lock"><Icon name="lock" /></button>}
         </div>
@@ -121,11 +116,16 @@ export default function Shell({ children }: { children: ReactNode }) {
               aria-label={pending ? `${pending} orders waiting for approval` : "No orders waiting for approval"}>
               <Icon name="bell" />{pending > 0 && <span />}
             </Link>
-            <a className="primary small" href="/vimo/index.html"><Icon name="sparkles" />Ask Vimo</a>
+            <form className="search-box" role="search" onSubmit={(e) => { e.preventDefault(); setPurchase(String(new FormData(e.currentTarget).get("q") ?? "").trim()); e.currentTarget.reset(); }}>
+              <Icon name="search" size={17} />
+              <input name="q" placeholder="Search products…" aria-label="Search the catalog to start a purchase" />
+            </form>
+            <button className="primary small" onClick={() => setPurchase("")}><Icon name="plus" />New purchase</button>
           </div>
         </header>
         <main id="content" className="content">{children}</main>
       </div>
+      {purchase !== null && <NewPurchase initialQuery={purchase} onClose={() => setPurchase(null)} />}
       {open && <div className="backdrop mobile" onClick={close} aria-hidden="true" />}
     </div>
   );
