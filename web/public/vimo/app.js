@@ -26,11 +26,15 @@ let microphoneMonitor = null;
 let elevenConversation = null;
 let elevenStarting = null;  // in-flight start: auto-start + button click must not open two sessions (two voices)
 let elevenIdleTimer = null;
-let parkingElevenSession = false;
+let elevenOnStandby = false;
+let elevenMicQueue = Promise.resolve();
+let elevenRecoveryTimer = null;
+let elevenRecoveryAttempts = 0;
 let captionTimer = null;
 let speakAudio = null;
 let speakId = 0;
 let backendPollTimer = null;
+let backendRefreshInFlight = false;
 let lastBackendOrderStatus = null;
 const TURN_SILENCE_MS = 1200;
 const TURN_MAX_MS = 5000;
@@ -42,6 +46,42 @@ function clearElevenIdleTimer() {
   elevenIdleTimer = null;
 }
 
+function clearElevenRecovery() {
+  clearTimeout(elevenRecoveryTimer);
+  elevenRecoveryTimer = null;
+}
+
+function setElevenMicMuted(muted) {
+  const conversation = elevenConversation;
+  if (!conversation || typeof conversation.setMicMuted !== "function") return Promise.resolve();
+  // The SDK call is asynchronous. Sending mute and unmute at the same time
+  // means their completion order is not guaranteed; a late mute previously
+  // left Vimo unable to hear the buyer after its first reply.
+  elevenMicQueue = elevenMicQueue
+    .catch(() => {})
+    .then(async () => {
+      if (conversation !== elevenConversation) return;
+      await conversation.setMicMuted(muted);
+    })
+    .catch((error) => reportVoiceEvent("eleven_mic_update_failed", error?.message || "Unable to update microphone"));
+  return elevenMicQueue;
+}
+
+function scheduleElevenRecovery() {
+  if (!vimoEnabled || elevenConversation || elevenStarting || elevenRecoveryTimer) return;
+  if (elevenRecoveryAttempts >= 3) {
+    setVimoState("Vimo needs attention", "Live voice could not reconnect. Select Talk to Vimo to try again.");
+    return;
+  }
+  const delay = 500 * (2 ** elevenRecoveryAttempts);
+  elevenRecoveryAttempts += 1;
+  setVimoState("Vimo is reconnecting", "Restoring live voice…", true);
+  elevenRecoveryTimer = setTimeout(() => {
+    elevenRecoveryTimer = null;
+    startElevenLive().catch(scheduleElevenRecovery);
+  }, delay);
+}
+
 function armElevenIdleTimer() {
   clearElevenIdleTimer();
   // Electron does not reliably expose the Web Speech wake listener. Parking
@@ -51,10 +91,15 @@ function armElevenIdleTimer() {
   elevenIdleTimer = setTimeout(async () => {
     const conversation = elevenConversation;
     if (!conversation || liveRequest) return;
-    // A parked session cannot generate an unsolicited "are you still there?"
-    // turn. The wake listener remains available for the buyer's next request.
-    parkingElevenSession = true;
-    try { await conversation.endSession(); } catch (_) { /* it may already be closed */ }
+    // Keep the established live session rather than tearing it down. A new
+    // signed URL plus WebRTC handshake made every wake-up feel slow and was a
+    // common source of the one-turn-only failure. The browser wake listener
+    // hears the next request while Vimo's stream is muted.
+    elevenOnStandby = true;
+    await setElevenMicMuted(true);
+    if (conversation !== elevenConversation) return;
+    setVimoState("Vimo is on standby", "Say “Hey Vimo” when you need me. I’ll also surface a real backend decision.");
+    startWakeListener();
   }, 5000);
 }
 
@@ -511,15 +556,22 @@ function startBackendDecisionPolling() {
   clearInterval(backendPollTimer);
   lastBackendOrderStatus = state.approval?.status || null;
   backendPollTimer = setInterval(async () => {
-    if (!state.approval?.id) return;
-    await refreshOrder();
-    const status = state.approval?.status || null;
-    if (!status || status === lastBackendOrderStatus) return;
-    lastBackendOrderStatus = status;
-    const update = `Backend update: this order is now ${STATUS_LABEL[status] || status}.`;
-    addEvent("Backend update", update);
-    if (status === "pending_approval") openDecisionConfirmation();
-    speak(update);
+    if (!state.approval?.id || backendRefreshInFlight) return;
+    backendRefreshInFlight = true;
+    try {
+      await refreshOrder();
+      const status = state.approval?.status || null;
+      if (!status || status === lastBackendOrderStatus) return;
+      lastBackendOrderStatus = status;
+      const update = `Backend update: this order is now ${STATUS_LABEL[status] || status}.`;
+      addEvent("Backend update", update);
+      if (status === "pending_approval") openDecisionConfirmation();
+      speak(update);
+    } catch (error) {
+      reportVoiceEvent("backend_refresh_failed", error?.message || "Could not refresh order");
+    } finally {
+      backendRefreshInFlight = false;
+    }
   }, 5000);
 }
 
@@ -560,6 +612,7 @@ function openDecisionConfirmation(decision = null, transcript = "") {
 
 function startElevenLive() {
   if (elevenConversation) return Promise.resolve();
+  clearElevenRecovery();
   elevenStarting ??= connectElevenLive().finally(() => { elevenStarting = null; });
   return elevenStarting;
 }
@@ -628,8 +681,13 @@ async function connectElevenLive() {
       },
     },
     onConnect: () => {
+      clearElevenRecovery();
+      elevenRecoveryAttempts = 0;
+      elevenOnStandby = false;
+      setElevenMicMuted(false);
       setListening();
       startBackendDecisionPolling();
+      armElevenIdleTimer();
     },
     onMessage: (event) => {
       const who = event?.source || event?.role;
@@ -645,12 +703,12 @@ async function connectElevenLive() {
         // microphone. ElevenLabs then sees a false barge-in and cuts the
         // response short. Pause input only for the spoken turn; listening is
         // immediately restored afterwards.
-        Promise.resolve(elevenConversation?.setMicMuted(true)).catch(() => {});
+        setElevenMicMuted(true);
         clearTimeout(thinkingTimer);
         setVimoState("Vimo is speaking", "Finishing this update, then listening again.");
       }
       if (mode === "listening") {
-        Promise.resolve(elevenConversation?.setMicMuted(false)).catch(() => {});
+        if (!elevenOnStandby) setElevenMicMuted(false);
         hideCaption(2500);
         if ($("#vimo-title").textContent === "Vimo is speaking") setListening();
         armElevenIdleTimer();
@@ -658,26 +716,22 @@ async function connectElevenLive() {
     },
     onError: () => {
       clearElevenIdleTimer();
+      elevenOnStandby = false;
       try { elevenConversation?.endSession(); } catch (_) { /* already closed */ }
       elevenConversation = null;
       hideCaption(0);
       clearTimeout(thinkingTimer);
-      setVimoState("Vimo needs attention", "The live conversation disconnected. Select Talk to Vimo to reconnect.");
+      scheduleElevenRecovery();
     },
     onDisconnect: () => {
       elevenConversation = null;
+      elevenOnStandby = false;
       hideCaption(0);
       clearTimeout(thinkingTimer);
       clearElevenIdleTimer();
-      if (parkingElevenSession) {
-        parkingElevenSession = false;
-        setVimoState("Vimo is on standby", "Say “Hey Vimo” when you need me. I’ll also surface a real backend decision.");
-        startWakeListener();
-        return;
-      }
-      clearInterval(backendPollTimer);
-      backendPollTimer = null;
-      setVimoState("Vimo is offline", "Select Talk to Vimo to reconnect.");
+      // Keep backend polling running: order decisions must still reach the
+      // buyer while live voice is recovering.
+      scheduleElevenRecovery();
     },
   });
   // the agent's model does not know today's date and resolves "by Monday" in its training year
@@ -685,7 +739,10 @@ async function connectElevenLive() {
   const iso = now.toLocaleDateString("en-CA", {timeZone: "Europe/Helsinki"});
   const weekday = now.toLocaleDateString("en-GB", {weekday: "long", timeZone: "Europe/Helsinki"});
   try {
-    elevenConversation.sendContextualUpdate(`Today is ${weekday} ${iso} (Helsinki). Resolve relative dates such as "Monday" or "tomorrow" from today; deliver_by must be today or later, in YYYY-MM-DD.`);
+    elevenConversation.sendContextualUpdate(
+      `Today is ${weekday} ${iso} (Helsinki). Resolve relative dates such as "Monday" or "tomorrow" from today; deliver_by must be today or later, in YYYY-MM-DD. ` +
+      "Conversation protocol: be silent until the buyer addresses Vimo or has just asked a follow-up. Never ask whether they are still there, never fill silence, and finish each answer cleanly."
+    );
   } catch (error) { console.warn("Could not send today's date to Vimo", error); }  // the backend also rejects past dates
 }
 
@@ -787,10 +844,14 @@ function hasBrowserSpeechRecognition() {
 async function sendElevenTurn(text) {
   const request = text.trim();
   if (!request) return;
+  clearElevenIdleTimer();
+  elevenOnStandby = false;
+  stopWakeListener();
   setThinking(request);
   try {
     await startElevenLive();
     if (!elevenConversation) throw new Error("Live Vimo did not connect");
+    await setElevenMicMuted(false);
     // This is intentionally a direct user turn. Re-routing a completed wake
     // transcript through Gemini and local TTS added an unnecessary second
     // model request and made normal back-and-forth feel delayed.
