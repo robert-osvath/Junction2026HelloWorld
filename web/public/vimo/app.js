@@ -405,7 +405,10 @@ function renderEventPlan() {
             const updated = await recordBuyerDecision(decision);
             if (updated) line.result.order = updated;
           } catch (error) {
-            addEvent("Could not record the decision", error.message);
+            // usually decided elsewhere (voice, /approvals): show the order's real status instead of retrying
+            const fresh = await fetch(`/orders/${encodeURIComponent(line.result.order.id)}`).then((r) => r.ok ? r.json() : null).catch(() => null);
+            if (fresh) { line.result.order = fresh; rememberOrder(fresh); }
+            if (!fresh || fresh.status === "pending_approval") addEvent("Could not record the decision", error.message);
           }
           renderEventPlan();
         });
@@ -575,6 +578,12 @@ function renderMetrics() {
 function rememberOrder(order) {
   myOrders = [order, ...myOrders.filter((o) => o.id !== order.id)];
   renderMetrics();
+  // a decision made by voice or on /approvals must show in the event popup too
+  const line = eventPlan?.lines.find((l) => l.result?.order?.id === order.id);
+  if (line && line.result.order.status !== order.status) {
+    line.result.order = order;
+    if ($("#event-dialog").open) renderEventPlan();
+  }
 }
 
 function renderOrderWatch() {

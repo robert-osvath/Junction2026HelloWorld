@@ -92,3 +92,10 @@ def test_vimo_refuses_off_topic_requests() -> None:
 def test_vimo_has_room_for_a_full_menu_tool_call() -> None:
     """At 80 max_tokens Gemini truncated plan_event arguments, failed the turn, and the fallback only talked."""
     assert live_config()["conversation_config"]["agent"]["prompt"]["max_tokens"] >= 1000
+
+
+def test_vimo_always_speaks_after_event_tools() -> None:
+    """Live, Vimo stayed silent after plan_event returned; the prompt must require a spoken summary."""
+    prompt = live_config()["conversation_config"]["agent"]["prompt"]["prompt"]
+    assert "As soon as plan_event returns, always speak" in prompt
+    assert "never stay silent after it" in prompt
