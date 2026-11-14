@@ -67,6 +67,7 @@ class Order(BaseModel):
     status: Literal["placed", "pending_approval", "substitutes_proposed", "rejected"]
     confirmation_no: str | None = None
     substitutes: list[Offer] = []
+    created_at: datetime | None = None
 
 
 class AuditEvent(BaseModel):
@@ -123,6 +124,10 @@ class OrderRequest(BaseModel):
     mandate_id: str
     need: Need
     lines: list[Offer]
+
+
+class RejectRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)
 
 
 class AuditVerify(BaseModel):

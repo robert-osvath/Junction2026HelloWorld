@@ -129,3 +129,17 @@ def test_409_message_and_cost_verdict_consistent():
     assert o["status"] == "pending_approval" and cost["decision"] == "escalate"
     c.post(f"/orders/{o['id']}/approve")
     assert "cannot approve an order that is placed" in c.post(f"/orders/{o['id']}/approve").json()["detail"]
+
+
+def test_reject_with_reason_audited():
+    oid = place("mandate-hotel-tight").json()["id"]
+    assert c.post(f"/orders/{oid}/reject", json={"reason": "too pricey"}).json()["status"] == "rejected"
+    ev = c.get("/audit", params={"order_id": oid}).json()[-1]
+    assert ev["actor"] == "human" and ev["human_summary"].endswith("Reason: too pricey")
+
+
+def test_reject_empty_reason_422_and_created_at():
+    o = place("mandate-hotel-tight").json()
+    assert o["created_at"]
+    assert c.post(f"/orders/{o['id']}/reject", json={"reason": ""}).status_code == 422
+    assert c.get(f"/orders/{o['id']}").json()["status"] == "pending_approval"
