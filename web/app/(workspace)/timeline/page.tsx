@@ -39,7 +39,7 @@ export default function Timeline() {
           <p>Every request, juror verdict and human decision, newest first.</p>
         </div>
       </section>
-      {events.err && <p className="err" role="alert">Backend: {events.err}</p>}
+      {(events.err || orders.err) && <p className="err" role="alert">Backend: {events.err || orders.err}</p>}
 
       <div className="audit-layout">
         <div className="audit-panel">
@@ -50,7 +50,7 @@ export default function Timeline() {
               {(orders.data ?? []).map((o) => <option key={o.id} value={o.id}>{shortId(o.id)} · {o.need.text}</option>)}
             </select>
           </div>
-          {events.data === null ? <p className="empty-state">Loading…</p> : list.length === 0 ? <p className="empty-state">No events yet.</p> : (
+          {events.loading ? <p className="empty-state">Loading…</p> : list.length === 0 ? <p className="empty-state">No events yet.</p> : (
             <ol className="event-list">
               {list.map((e) => {
                 const [icon, tone] = look(e);
@@ -61,7 +61,7 @@ export default function Timeline() {
                     <div>
                       <h3>{who(e.actor)}{e.order_id && !orderId ? <span className="muted"> · {shortId(e.order_id)}</span> : null}</h3>
                       <p>{e.human_summary}</p>
-                      <details><summary>Technical details</summary><code>{e.action}<br />{e.hash}</code></details>
+                      <details><summary>Technical details</summary><code>{e.action}<br />hash {e.hash}<br />previous {e.prev_hash}<br />payload {e.payload_hash}</code></details>
                     </div>
                   </li>
                 );
@@ -71,8 +71,8 @@ export default function Timeline() {
         </div>
 
         <aside className="audit-trust">
-          <span className="shield"><Icon name="shield" size={28} /></span>
-          <h3>{verify.data === null ? "Checking the chain…" : verify.data.ok ? "Audit log verified" : "Audit log broken"}</h3>
+          <div className="shield"><Icon name="shield" size={28} /></div>
+          <h3>{verify.err ? "Audit check unavailable" : verify.data === null ? "Checking the chain…" : verify.data.ok ? "Audit log verified" : "Audit log broken"}</h3>
           <p>{verify.data === null ? "" : verify.data.ok
             ? `${verify.data.checked} entries checked. Each entry hashes the one before it, so no entry can be edited unseen.`
             : `The hash chain breaks at entry ${verify.data.broken_at}.`}</p>

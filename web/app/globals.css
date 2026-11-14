@@ -84,7 +84,7 @@ a { color: var(--green-2); }
 .eyebrow { margin-bottom: 6px; color: #66857a; font-size: 11px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
 .hero-row, .page-heading { min-height: 72px; margin-bottom: 32px; display: flex; justify-content: space-between; align-items: flex-end; gap: 32px; }
 .hero-row > div > p:last-child, .page-heading > div > p:last-child { margin-top: 8px; color: var(--muted); font-size: 14px; }
-.panel, .table-panel { background: var(--white); border: 1px solid var(--line); border-radius: 16px; }
+.panel { background: var(--white); border: 1px solid var(--line); border-radius: 16px; }
 .panel-heading { min-height: 80px; padding: 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .tag { display: inline-flex; margin-right: 6px; padding: 3px 8px; border-radius: 6px; background: #edf0ec; color: #576a62; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
 .tag.urgent { background: #fde4da; color: #a8452d; }
@@ -97,7 +97,6 @@ a { color: var(--green-2); }
 .progress { height: 4px; margin-top: 9px; border-radius: 10px; background: #e5e9e4; overflow: hidden; }
 .progress span { display: block; height: 100%; border-radius: inherit; background: var(--green-2); }
 .empty-state { margin-top: 16px; padding: 12px; min-height: 48px; border-radius: 10px; background: #f1f2ee; color: var(--muted); display: flex; align-items: center; gap: 10px; font-size: 13px; }
-.table-panel > .empty-state { margin: 16px 24px 24px; }
 
 /* ---------- Tables ---------- */
 .table-tools { min-height: 64px; padding: 12px 24px; display: flex; justify-content: space-between; align-items: center; gap: 16px; border-bottom: 1px solid var(--line); }
@@ -110,8 +109,6 @@ table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 th, td { padding: 14px 24px; text-align: left; vertical-align: top; border-bottom: 1px solid #eceeea; }
 th { padding-top: 12px; padding-bottom: 10px; background: #fafaf7; color: #75857e; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
 tbody tr:last-child td { border-bottom: 0; }
-tr.click { cursor: pointer; }
-tr.click:hover td { background: #fafbf5; }
 ul.plain { margin: 0; padding: 0; list-style: none; }
 ul.bul { margin: 0; padding-left: 16px; }
 
@@ -155,7 +152,7 @@ code { font-size: 12px; word-break: break-all; }
 .lime-card { background: var(--lime-soft); } .peach-card { background: var(--peach-soft); } .cream-card { background: var(--sand); }
 .summary-icon { width: 40px; height: 40px; flex: none; border-radius: 10px; display: grid; place-items: center; background: rgba(255, 255, 255, 0.68); }
 .summary-card > span:nth-child(2) { flex: 1; min-width: 0; }
-.summary-card p { margin-bottom: 2px; color: #5a6f67; font-size: 12.5px; }
+.summary-card .label { display: block; margin-bottom: 2px; color: #5a6f67; font-size: 12.5px; }
 .summary-card strong { display: block; font: 700 19px var(--font-heading, Arial), sans-serif; }
 .summary-card small { color: #5d7068; font-size: 12px; }
 .summary-go { width: 34px; height: 34px; flex: none; border-radius: 50%; display: grid; place-items: center; background: rgba(255, 255, 255, 0.7); color: var(--green); }
@@ -232,7 +229,7 @@ code { font-size: 12px; word-break: break-all; }
 .audit-trust .secondary { width: 100%; margin-top: 20px; background: transparent; }
 
 /* ---------- Dialogs and toast ---------- */
-.modal { width: min(600px, calc(100vw - 32px)); max-height: calc(100vh - 40px); padding: 0; border: 0; border-radius: 18px; background: var(--white); color: var(--ink); box-shadow: 0 30px 80px rgba(5, 25, 19, 0.3); }
+.modal { width: min(600px, calc(100vw - 32px)); max-height: calc(100vh - 40px); overflow: auto; padding: 0; border: 0; border-radius: 18px; background: var(--white); color: var(--ink); box-shadow: 0 30px 80px rgba(5, 25, 19, 0.3); }
 .modal::backdrop { background: rgba(9, 32, 26, 0.56); backdrop-filter: blur(3px); }
 .modal-head { padding: 24px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; gap: 16px; }
 .modal-head h2 { font-size: 22px; }

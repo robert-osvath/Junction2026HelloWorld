@@ -12,7 +12,7 @@ export default function ApprovalDialog({ order, onClose, onDone }: { order: Orde
   const [err, setErr] = useState("");
   const line = order.lines[0];
   const approvals = order.verdicts.filter((v) => v.decision === "approve").length;
-  const clean = approvals === order.verdicts.length;
+  const clean = order.verdicts.length > 0 && approvals === order.verdicts.length;
 
   async function act(path: "approve" | "reject") {
     setBusy(true); setErr("");
@@ -25,7 +25,7 @@ export default function ApprovalDialog({ order, onClose, onDone }: { order: Orde
   }
 
   return (
-    <Modal title="Review approval" subtitle={`${order.need.text} · ${order.mandate_id}`} onClose={onClose}>
+    <Modal title="Review approval" subtitle={`${order.need.text} · ${order.mandate_id}`} busy={busy} onClose={onClose}>
       <div className="approval-dialog-summary">
         <div><span>Order total</span><strong>{eur(total(order))}</strong><small>{line ? `${line.units_needed} x ${line.sales_unit}, delivery ${line.available_date}` : "No order lines"}</small></div>
         <div><span>Product</span><strong>{line?.name ?? "—"}</strong><small>Jury: {approvals} of {order.verdicts.length} approve</small></div>
@@ -34,7 +34,7 @@ export default function ApprovalDialog({ order, onClose, onDone }: { order: Orde
         <Icon name={clean ? "check" : "shield"} />
         <div>
           <strong>{clean ? "Every juror approved" : "Held for your decision"}</strong>
-          <p>{clean ? "All policy, delivery and cost checks passed." : heldReason(order)}</p>
+          <p>{clean ? "All policy, delivery and cost checks passed." : order.verdicts.length ? heldReason(order) : "No jury verdicts recorded for this order."}</p>
         </div>
       </div>
       <div className="form-body compact">

@@ -12,7 +12,7 @@ export type Order = {
   status: Status; confirmation_no: string | null; substitutes: Offer[]; created_at: string | null;
 };
 export type RejectRequest = { reason: string };
-export type AuditEvent = { id: string; ts: string; order_id: string | null; actor: string; action: string; hash: string; human_summary: string };
+export type AuditEvent = { id: string; ts: string; order_id: string | null; actor: string; action: string; payload_hash: string; prev_hash: string; hash: string; human_summary: string };
 export type AuditVerify = { ok: boolean; checked: number; broken_at: string | null };
 
 export async function api<T>(path: string, method = "GET", body?: unknown): Promise<T> {
@@ -50,4 +50,6 @@ export function who(actor: string) {
 }
 // Dates the API sends as YYYY-MM-DD, compared with today in Helsinki (the API's clock for deadlines).
 export const helsinkiToday = (now: number) => new Date(now).toLocaleDateString("en-CA", { timeZone: "Europe/Helsinki" });
-export const day = (iso: string) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+export const day = (iso: string) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+// "Due today" / "Overdue" for an order still waiting on someone; "" when not due yet or unknown.
+export const dueLabel = (deliverBy: string, today: string) => (!today || deliverBy > today ? "" : deliverBy === today ? "Due today" : "Overdue");

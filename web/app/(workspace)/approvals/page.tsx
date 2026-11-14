@@ -1,7 +1,7 @@
 "use client";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
-import { ago, day, eur, heldReason, helsinkiToday, LABEL, total, type AuditVerify, type Order, type Status } from "../../api";
+import { ago, day, dueLabel, eur, heldReason, helsinkiToday, LABEL, total, WAITING, type AuditVerify, type Order, type Status } from "../../api";
 import ApprovalDialog from "../../components/ApprovalDialog";
 import { useNow, usePoll, useToast } from "../../components/hooks";
 import Icon from "../../components/Icon";
@@ -52,16 +52,15 @@ function Inbox() {
               ))}
             </nav>
           </div>
-          {orders.data === null ? <p className="empty-state">Loading…</p>
+          {orders.loading ? <p className="empty-state">Loading…</p>
             : rows.length === 0 ? <p className="empty-state"><Icon name="check" />No orders with status {LABEL[tab].toLowerCase()}.</p>
             : rows.map((o) => {
-              const due = today !== "" && o.need.deliver_by <= today && (o.status === "pending_approval" || o.status === "substitutes_proposed");
+              const due = WAITING.includes(o.status) ? dueLabel(o.need.deliver_by, today) : "";
               return (
-                <button className="approval-row" key={o.id} onClick={() => pick(o)}
-                  aria-label={`${o.need.text}, ${eur(total(o))}, ${LABEL[o.status]}${o.status === "pending_approval" ? ", review" : ", open record"}`}>
+                <button className="approval-row" key={o.id} onClick={() => pick(o)}>
                   <span className="approval-icon" aria-hidden="true"><Icon name={o.status === "pending_approval" ? "briefcase" : "file"} /></span>
                   <span className="approval-copy">
-                    <span><span className={`status s-${o.status}`}>{LABEL[o.status]}</span>{due && <span className="tag urgent">Due today</span>}</span>
+                    <span><span className={`status s-${o.status}`}>{LABEL[o.status]}</span>{due && <span className="tag urgent">{due}</span>}</span>
                     <strong>{o.need.text}</strong>
                     <small>{o.mandate_id} · {o.lines[0]?.name ?? "no product"} · {o.status === "placed" ? (o.confirmation_no ?? "placed") : heldReason(o)}</small>
                   </span>
@@ -80,18 +79,19 @@ function Inbox() {
           <p className="eyebrow">All orders</p>
           <h2>Approval stats</h2>
           <div className="approval-stat"><strong>{of("pending_approval").length}</strong><span>Waiting, {sum(of("pending_approval"))}</span></div>
+          <div className="approval-stat"><strong>{of("substitutes_proposed").length}</strong><span>Substitute choices</span></div>
           <div className="approval-stat"><strong>{of("placed").length}</strong><span>Placed, {sum(of("placed"))}</span></div>
           <div className="approval-stat"><strong>{of("rejected").length}</strong><span>Rejected</span></div>
           <div className={`healthy ${verify.data && !verify.data.ok ? "bad" : ""}`}>
             <span><Icon name={verify.data?.ok === false ? "close" : "check"} /></span>
-            <p>{verify.data === null ? <strong>Checking audit log…</strong>
+            <p>{verify.err ? <><strong>Audit check unavailable</strong>{verify.err}</> : verify.data === null ? <strong>Checking audit log…</strong>
               : verify.data.ok ? <><strong>Audit log verified</strong>{verify.data.checked} entries, none changed.</>
               : <><strong>Audit log broken</strong>at entry {verify.data.broken_at}.</>}</p>
           </div>
         </aside>
       </div>
 
-      {open && <ApprovalDialog order={open} onClose={() => setOpen(null)} onDone={(m) => { setOpen(null); setToast(m); void orders.reload(); }} />}
+      {open && <ApprovalDialog order={open} onClose={() => setOpen(null)} onDone={(m) => { setOpen(null); setToast(m); orders.reload(); verify.reload(); }} />}
       <Toast message={toast} />
     </>
   );
