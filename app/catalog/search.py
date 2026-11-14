@@ -4,12 +4,16 @@ Ranking (tuple, higher is better), all generic:
 1. how many query terms occur in the product NAME (fi/en/sv), then anywhere indexed;
 2. pack fit for the requested quantity (only when `quantity` and `unit` L/kg are given, see `_fit`);
 3. bm25 relevance (name columns weighted far above ingredients, see store.FTS_WEIGHTS).
-A vector score can later be blended in as an extra key of `_rank` without changing the signature.
+
+Hybrid (when the DB has embeddings and the query embeds within SEARCH_EMBED_TIMEOUT_S): candidates are
+the FTS rows plus the VECTOR_K nearest products; text order (keys 1 and 3 above) and vector order are
+fused with reciprocal rank fusion, then pack fit applies among the near-best fused scores. Any failure
+(no key, no embeddings, API error, timeout) gives exactly the text-only ranking.
 """
 import math
 import sqlite3
 
-from app.catalog import store
+from app.catalog import embeddings, store, vectors
 from contracts import CatalogItem
 
 CANDIDATES = 1000
@@ -71,6 +75,45 @@ def _ranked(rows: list[sqlite3.Row], terms: list[str], quantity, unit) -> list[s
     return sorted(rows, key=key, reverse=True)
 
 
+VECTOR_K = 200
+RRF_K = 60
+FUSED_BUCKET = 0.6   # fused score within this fraction of the best counts as equally relevant
+
+
+def _text_order(rows: list[sqlite3.Row], terms: list[str]) -> list[sqlite3.Row]:
+    """Text-only relevance order (no pack fit): name hits, any-field hits, relevance bucket, bm25."""
+    return _ranked(rows, terms, None, None)
+
+
+def _hybrid(rows: list[sqlite3.Row], text_rows: list[sqlite3.Row], vec_rows: list[sqlite3.Row],
+            quantity, unit) -> list[sqlite3.Row]:
+    """RRF of the text order and the vector order; fit decides among near-best fused scores."""
+    score: dict[str, float] = {}
+    for rank, r in enumerate(text_rows):
+        score[r["id"]] = score.get(r["id"], 0.0) + 1.0 / (RRF_K + rank + 1)
+    for rank, r in enumerate(vec_rows):
+        score[r["id"]] = score.get(r["id"], 0.0) + 1.0 / (RRF_K + rank + 1)
+    best = max(score.values(), default=0.0)
+
+    def key(r):
+        s = score[r["id"]]
+        return (int(s >= FUSED_BUCKET * best), _fit(r, quantity, unit), s)
+    return sorted(rows, key=key, reverse=True)
+
+
+def _vector_rows(conn, q, claims, exclude, category) -> list[sqlite3.Row]:
+    """Nearest products to the query (filters applied), best first; [] if unavailable."""
+    matrix = vectors.get_matrix(conn)
+    if matrix is None:
+        return []
+    qv = embeddings.try_embed_query(q)
+    if qv is None:
+        return []
+    ids = matrix.neighbours(qv, VECTOR_K * 5)  # over-fetch: filters may drop many
+    by_id = {r["id"]: r for r in store.rows_by_ids(conn, ids, claims, exclude, category)}
+    return [by_id[i] for i in ids if i in by_id][:VECTOR_K]
+
+
 def search(conn: sqlite3.Connection, q: str = "", claims: str = "", exclude_allergens: str = "",
            category: str = "", limit: int = 20,
            quantity: float | None = None, unit: str | None = None) -> list[CatalogItem]:
@@ -83,7 +126,14 @@ def search(conn: sqlite3.Connection, q: str = "", claims: str = "", exclude_alle
     rows = store.search_rows(conn, terms, _csv(claims), _csv(exclude_allergens),
                              category.strip(), CANDIDATES, short_terms=short)
     if terms or short:
-        rows = _ranked(rows, terms or short, quantity, unit)
+        vec_rows = _vector_rows(conn, q, _csv(claims), _csv(exclude_allergens), category.strip())
+        if vec_rows:
+            text_rows = _text_order(rows, terms or short)
+            seen = {r["id"] for r in rows}
+            rows = rows + [r for r in vec_rows if r["id"] not in seen]
+            rows = _hybrid(rows, text_rows, vec_rows, quantity, unit)
+        else:
+            rows = _ranked(rows, terms or short, quantity, unit)
     rows = rows[:limit]
     det = store.item_details(conn, [r["id"] for r in rows])
     return [CatalogItem(product_id=r["id"], name=r["name_en"] or r["name_fi"] or r["id"],
