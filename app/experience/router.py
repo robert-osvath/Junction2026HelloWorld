@@ -136,7 +136,8 @@ def demo_brief(request: BriefRequest) -> str:
 def backend_agent_state(auto_approve_limit: float | None = None) -> AgentStateResponse:
     """Expose an actual current order rather than recreating a demo decision."""
     del auto_approve_limit  # Rules are bound to each order when its draft is created.
-    orders = get_order_store().list()
+    # only the cockpit's own orders: other buyers' and the game's orders must not leak into Vimo's answers
+    orders = [order for order in get_order_store().list() if order.mandate_id == "mandate-vimo-live"]
     recorded = next((order for order in orders if order.status == "pending_approval"), None) or (orders[0] if orders else None)
     if recorded is None:
         return AgentStateResponse(

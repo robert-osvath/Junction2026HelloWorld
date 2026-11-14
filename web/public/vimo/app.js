@@ -1,11 +1,9 @@
 const state = {
   voice: true,
   approval: null,
-  agentState: null,
   conversation: [],
   jury: [],
   events: [],
-  orders: [],
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -26,43 +24,47 @@ let liveRequest = null;
 let liveAnalyser = null;
 let microphoneMonitor = null;
 let elevenConversation = null;
-let elevenSleepTimer = null;
+let elevenStarting = null;  // in-flight start: auto-start + button click must not open two sessions (two voices)
+let captionTimer = null;
+let speakAudio = null;
+let speakId = 0;
 let backendPollTimer = null;
 const TURN_SILENCE_MS = 1200;
 const TURN_MAX_MS = 5000;
 const VOICE_DIAGNOSTICS_ENABLED = false;
 const recentVoiceEvents = new Map();
 
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
 function renderJury() {
-  juryList.replaceChildren(...state.jury.map((verdict) => {
-    const row = document.createElement("div");
-    row.className = "jury-row";
-    const mark = document.createElement("span");
-    mark.className = "checkmark";
-    mark.textContent = verdict.decision === "reject" ? "!" : "✓";
-    const juror = document.createElement("strong");
-    juror.textContent = `${verdict.juror} jury`;
-    const reason = document.createElement("span");
-    reason.textContent = verdict.reasons?.join("; ") || "No explanation returned.";
-    const confidence = document.createElement("span");
-    confidence.textContent = verdict.confidence == null ? verdict.decision : `${Math.round(verdict.confidence * 100)}% confidence`;
-    row.append(mark, juror, reason, confidence);
+  juryList.replaceChildren(...state.jury.map(([mark, name, finding, confidence]) => {
+    const row = el("div", "jury-row");
+    row.append(el("span", "checkmark", mark), el("strong", "", name), el("span", "", finding), el("span", "", confidence));
     return row;
   }));
-  if (!state.jury.length) juryList.textContent = "No jury verdict is available yet.";
 }
 
 function renderTimeline() {
-  timeline.replaceChildren(...state.events.map((event) => {
-    const item = document.createElement("li");
-    const time = document.createElement("time");
-    const title = document.createElement("strong");
-    time.textContent = event.time;
-    title.textContent = event.title;
-    item.append(time, title, document.createTextNode(event.detail));
+  if (!state.events.length) {
+    timeline.replaceChildren(el("li", "", "Nothing yet. Tell Vimo what you need."));
+    return;
+  }
+  timeline.replaceChildren(...state.events.map(([time, title, detail]) => {
+    const item = el("li");
+    item.append(el("time", "", time), el("strong", "", title), document.createTextNode(detail));
     return item;
   }));
-  if (!state.events.length) timeline.textContent = "No backend activity has been recorded yet.";
+}
+
+function addEvent(title, detail) {
+  state.events.unshift([new Date().toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"}), title, detail]);
+  state.events = state.events.slice(0, 20);
+  renderTimeline();
 }
 
 function setVimoState(title, detail, listening = false) {
@@ -111,21 +113,48 @@ function reportVoiceEvent(kind, detail = "") {
   }).catch(() => {});
 }
 
+function showCaption(text, hideAfterMs = 0) {
+  const el = $("#vimo-caption");
+  if (!el?.showPopover || !text) return;  // Popover API: Chrome/Edge 114+, Safari 17+
+  clearTimeout(captionTimer);
+  el.textContent = text;
+  if (el.matches(":popover-open")) el.hidePopover();
+  el.showPopover();  // top layer, re-shown per line so it stays above an open <dialog>
+  if (hideAfterMs) hideCaption(hideAfterMs);
+}
+
+function hideCaption(afterMs = 1500) {
+  clearTimeout(captionTimer);
+  captionTimer = setTimeout(() => { const el = $("#vimo-caption"); if (el?.matches(":popover-open")) el.hidePopover(); }, afterMs);
+}
+
 async function speak(text) {
   if (!state.voice) return;
+  // one voice at a time: stop the previous line; the live ElevenLabs agent already speaks for itself
+  const id = ++speakId;  // a newer line supersedes this one (its audio, its caption timer)
+  if (speakAudio) speakAudio.pause();
+  if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+  if (elevenStarting || elevenConversation) { showCaption(text, 4000 + text.length * 40); return; }
+  showCaption(text);
+  try { await speakAloud(text, id); } finally { if (id === speakId) hideCaption(); }
+}
+
+async function speakAloud(text, id) {
   try {
     const response = await fetch("/experience/speak", {
       method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({text}),
     });
     if (response.ok) {
-      const audio = new Audio(URL.createObjectURL(await response.blob()));
-      audio.play();
-      await new Promise((resolve) => { audio.onended = resolve; audio.onerror = resolve; });
+      const blob = await response.blob();
+      if (id !== speakId) return;  // superseded while fetching: never start a second voice
+      const audio = new Audio(URL.createObjectURL(blob));
+      speakAudio = audio;
+      audio.play().catch(() => audio.onerror?.());
+      await new Promise((resolve) => { audio.onended = resolve; audio.onerror = resolve; audio.onpause = resolve; });
       return;
     }
   } catch (_) { /* Browser speech remains a local demo fallback. */ }
-  if (!("speechSynthesis" in window)) return;
-  window.speechSynthesis.cancel();
+  if (!("speechSynthesis" in window) || id !== speakId) return;
   const message = new SpeechSynthesisUtterance(text);
   message.rate = 1.04;
   const finished = new Promise((resolve) => { message.onend = resolve; message.onerror = resolve; });
@@ -218,23 +247,6 @@ function handleLiveTurn(transcript) {
   beginLiveRequest(command);
 }
 
-async function getBackendAgentState() {
-  const ordersResponse = await fetch("/orders");
-  if (!ordersResponse.ok) throw new Error("Vimo backend orders are unavailable");
-  const orders = await ordersResponse.json();
-  const active = orders.find((order) => order.status === "pending_approval") || orders[0] || null;
-  state.orders = orders;
-  state.approval = orders.find((order) => order.status === "pending_approval") || null;
-  state.agentState = active ? {
-    order_id: active.id,
-    order_status: active.status,
-    jury_decision: active.status === "pending_approval" ? "human_approval" : active.status,
-    verdicts: active.verdicts || [],
-    summary: orderSummary(active),
-  } : null;
-  return state.agentState;
-}
-
 async function searchBackendCatalog(query, requiredClaims = []) {
   const params = new URLSearchParams({q: query, limit: "5"});
   if (requiredClaims.length) params.set("claims", requiredClaims.join(","));
@@ -271,153 +283,212 @@ async function createCatalogDraft({product_id, product_intent, quantity, unit, d
       unit,
       deliver_by,
       required_claims: required_claims.length ? required_claims : policyClaims,
-      banned_allergens: String(rules.allergens || "").split(",").map((value) => value.trim()).filter(Boolean),
+      banned_allergens: String(rules.allergens || "").split(",").map((value) => value.trim().toUpperCase()).filter(Boolean),
       strict_allergens: Boolean(rules.strict_allergens),
       substitutes_allowed: Boolean(rules.substitutes),
-      exception_reason,
+      exception_reason: exception_reason || null,
     }),
   });
-  if (!response.ok) throw new Error("The live backend could not create this order draft");
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(typeof body?.detail === "string" ? body.detail : "The order draft could not be created.");
+  }
   return response.json();
 }
 
-function euro(value) {
-  return new Intl.NumberFormat("en-FI", {style: "currency", currency: "EUR"}).format(Number(value || 0));
+const IDLE_HINT = "Say “Vimo” and what you need, e.g. “Vimo, order 1,000 L lactose-free milk by Monday”. Or type below.";
+let thinkingTimer = null;
+
+function setListening(detail = IDLE_HINT) {
+  clearTimeout(thinkingTimer);
+  setVimoState("Vimo is listening", detail, true);
 }
 
-function orderTotal(order) {
-  return (order?.lines || []).reduce((total, line) => total + Number(line.total_eur || 0), 0);
+function setThinking(heard) {
+  clearTimeout(thinkingTimer);
+  setVimoState("Vimo is thinking…", `You said: “${heard}”`, true);
+  // the agent stays silent unless addressed as “Vimo”: do not claim it is still thinking forever
+  thinkingTimer = setTimeout(() => setListening(`No reply to “${heard}”. Start with “Vimo”, e.g. “Vimo, order 1,000 L lactose-free milk by Monday”.`), 9000);
 }
 
-function orderLabel(order) {
-  const line = order?.lines?.[0];
-  return line ? `${line.units_needed} ${line.sales_unit} ${line.name}` : order?.need?.text || "Order";
+function setWorking(detail) {
+  clearTimeout(thinkingTimer);
+  setVimoState("Vimo is working", detail, true);
+  thinkingTimer = setTimeout(() => setListening(), 20000);  // never stuck if a tool or the agent goes quiet
 }
 
-function orderSummary(order) {
-  if (!order) return "No backend order is active.";
+const STATUS_LABEL = {
+  placed: "Placed", pending_approval: "Needs your approval", substitutes_proposed: "Substitutes proposed", rejected: "Rejected",
+};
+const JUROR_LABEL = {tier0: "Policy rules", spec: "Product fit", delivery: "Delivery", cost: "Cost", tier2: "Senior review"};
+const eur = (n) => new Intl.NumberFormat("en-GB", {style: "currency", currency: "EUR"}).format(n);
+const heldReason = (order) => order.verdicts?.find((v) => v.decision !== "approve")?.reasons?.[0] || "";
+
+function renderOrder(order) {
+  // the decision panel and banner always show the order this page is working on, never a demo fixture
   const line = order.lines?.[0];
-  const delivery = line?.available_date || order.need?.deliver_by || "delivery date unavailable";
-  return `${orderLabel(order)} for ${euro(orderTotal(order))}, delivery ${delivery}. Status: ${order.status.replaceAll("_", " ")}.`;
+  const sub = order.substitutes?.[0];
+  $("#decision-title").textContent = order.need?.text || "Order";
+  $("#decision-status").textContent = STATUS_LABEL[order.status] || order.status;
+  $("#decision-request").textContent = `Order ${order.id.replace("order-", "").slice(0, 8)} · ${order.mandate_id}`;
+  state.jury = (order.verdicts || []).map((v) => [
+    v.decision === "approve" ? "✓" : v.decision === "reject" ? "✕" : "!",
+    JUROR_LABEL[v.juror] || v.juror, v.reasons?.[0] || "", `${v.decision} · ${Math.round(v.confidence * 100)}%`,
+  ]);
+  renderJury();
+  $("#rec-name").textContent = line?.name || (sub ? `Substitute: ${sub.name}` : "No matching offer");
+  $("#rec-detail").textContent = line
+    ? `${line.units_needed} × ${line.sales_unit} · ${eur(line.total_eur)} · available ${line.available_date}`
+    : sub ? `${sub.units_needed} × ${sub.sales_unit} · ${eur(sub.total_eur)} · available ${sub.available_date}` : heldReason(order);
+  const pending = order.status === "pending_approval";
+  const subs = order.status === "substitutes_proposed" ? (order.substitutes || []) : [];
+  $("#approval-banner").hidden = !pending && !subs.length;
+  if (pending) {
+    $("#approval-title").textContent = `Approve ${line ? `${line.units_needed} × ${line.name}` : "this order"} for ${eur(line?.total_eur || 0)}?`;
+    $("#approval-detail").textContent = heldReason(order) || "The jury asked for a human decision.";
+  } else if (subs.length) {
+    $("#approval-title").textContent = `${line?.name || "This product"} did not pass the jury. Pick a substitute below.`;
+    $("#approval-detail").textContent = "See the jury verdicts in the decision panel. Ordering a substitute starts a new, re-checked order.";
+  }
+  for (const id of ["#approve-order", "#voice-decision"]) { $(id).disabled = !pending; $(id).hidden = !pending; }
+  $("#reject-order").disabled = !pending && !subs.length;
+  renderSubstitutes(order, subs);
 }
 
-function statusLabel(status) {
-  return String(status || "waiting").replaceAll("_", " ");
+let myOrders = [];
+
+function renderMetrics() {
+  renderOrderWatch();
+  // live numbers for this cockpit's orders (mandate-vimo-live), never placeholders
+  const placed = myOrders.filter((o) => o.status === "placed");
+  const sum = (o) => (o.lines || []).reduce((t, l) => t + l.total_eur, 0);
+  $("#m-orders").textContent = String(myOrders.length);
+  $("#m-placed").textContent = eur(placed.reduce((t, o) => t + sum(o), 0));
+  $("#m-placed-n").textContent = `${placed.length} order${placed.length === 1 ? "" : "s"}`;
+  $("#m-pending").textContent = String(myOrders.filter((o) => o.status === "pending_approval").length);
+  $("#m-subs").textContent = String(myOrders.filter((o) => o.status === "substitutes_proposed").length);
 }
 
-function renderOrderWatch(orders) {
+function rememberOrder(order) {
+  myOrders = [order, ...myOrders.filter((o) => o.id !== order.id)];
+  renderMetrics();
+}
+
+function renderOrderWatch() {
   const watch = $("#order-watch");
-  watch.replaceChildren(...orders.slice(0, 6).map((order) => {
-    const row = document.createElement("div");
-    row.className = "watch-row";
-    const details = document.createElement("div");
-    const title = document.createElement("strong");
-    const summary = document.createElement("span");
-    title.textContent = orderLabel(order);
-    summary.textContent = `${statusLabel(order.status)} · ${euro(orderTotal(order))} · ${order.id}`;
-    details.append(title, summary);
-    const badge = document.createElement("span");
-    badge.className = "status";
-    badge.textContent = statusLabel(order.status);
-    row.append(details, badge);
+  if (!myOrders.length) {
+    watch.replaceChildren(el("p", "muted", "No orders yet. Drafts appear here; select one to work on it."));
+    return;
+  }
+  watch.replaceChildren(...myOrders.slice(0, 6).map((order) => {
+    const line = order.lines?.[0];
+    const total = (order.lines || []).reduce((t, l) => t + l.total_eur, 0);
+    const row = el("button", "watch-row");
+    row.type = "button";
+    const info = el("div");
+    info.append(el("strong", "", order.need?.text || "Order"),
+      el("span", "", `${line ? line.name : "No offer"} · ${eur(total)} · ${order.id.replace("order-", "").slice(0, 8)}`));
+    row.append(info, el("span", "status", STATUS_LABEL[order.status] || order.status));
+    row.addEventListener("click", () => {  // explicit choice: voice tools then act on this order
+      state.approval = order;
+      renderOrder(order);
+      startBackendDecisionPolling();
+      $("#decision-title").scrollIntoView({behavior: "smooth", block: "center"});
+    });
     return row;
   }));
-  if (!orders.length) watch.textContent = "No orders have been created by the backend yet.";
 }
 
-async function refreshCockpit() {
-  const [ordersResponse, auditResponse] = await Promise.all([fetch("/orders"), fetch("/audit")]);
-  if (!ordersResponse.ok || !auditResponse.ok) throw new Error("Backend records are unavailable");
-  const orders = await ordersResponse.json();
-  const audit = await auditResponse.json();
-  state.orders = orders;
-  state.approval = orders.find((order) => order.status === "pending_approval") || null;
-  const active = state.approval || orders[0] || null;
-  state.agentState = active ? {
-    order_id: active.id, order_status: active.status,
-    jury_decision: active.status === "pending_approval" ? "human_approval" : active.status,
-    verdicts: active.verdicts || [], summary: orderSummary(active),
-  } : null;
-  state.jury = active?.verdicts || [];
-  state.events = audit.slice(0, 8).map((event) => ({
-    time: new Date(event.ts).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"}),
-    title: event.action.replaceAll(".", " "), detail: event.human_summary,
+function renderSubstitutes(order, subs) {
+  // the jury's ranked alternatives; picking one creates a new order that the jury checks again
+  const list = $("#substitute-list");
+  list.hidden = !subs.length;
+  list.replaceChildren(...subs.map((sub) => {
+    const row = el("div", "substitute-row");
+    const info = el("div");
+    info.append(el("strong", "", sub.name),  // the jury's ranker already tags Best/Better/Good in the name
+      el("span", "", `${sub.units_needed} × ${sub.sales_unit} · ${eur(sub.total_eur)} · available ${sub.available_date}`));
+    const button = el("button", "primary", "Order this instead");
+    button.addEventListener("click", () => acceptSubstitute(order, sub));
+    row.append(info, button);
+    return row;
   }));
-  renderJury();
-  renderTimeline();
-  renderOrderWatch(orders);
-  $("#active-count").textContent = String(orders.length);
-  $("#tracked-note").textContent = orders.length === 1 ? "1 backend order" : `${orders.length} backend orders`;
-  $("#placed-value").textContent = euro(orders.filter((order) => order.status === "placed").reduce((total, order) => total + orderTotal(order), 0));
-  $("#pending-count").textContent = String(orders.filter((order) => order.status === "pending_approval").length);
-  $("#decision-status").textContent = statusLabel(active?.status);
-  $("#decision-note").textContent = active ? active.id : "No order evaluated";
-  $("#orders-updated").textContent = audit[0] ? `Updated ${new Date(audit[0].ts).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})}` : "No backend events yet";
-  $("#decision-name").textContent = active ? orderLabel(active) : "No active order";
-  $("#decision-badge").textContent = statusLabel(active?.status);
-  $("#decision-request").textContent = active?.need?.text || "Create an order draft to see the live recommendation and jury evaluation.";
-  $("#recommendation-name").textContent = active?.lines?.[0]?.name || "No recommendation yet";
-  $("#recommendation-detail").textContent = active ? `${euro(orderTotal(active))} · delivery ${active.lines?.[0]?.available_date || active.need.deliver_by} · ${statusLabel(active.status)}` : "Live order details appear after backend evaluation.";
-  const pending = state.approval;
-  $("#approval-banner").hidden = !pending;
-  if (pending) {
-    $("#approval-title").textContent = "Approval needed before this order can proceed";
-    $("#approval-detail").textContent = orderSummary(pending);
-    $("#approve-order").disabled = false;
-    $("#reject-order").disabled = false;
-    $("#voice-decision").disabled = false;
+}
+
+async function acceptSubstitute(order, sub) {
+  for (const b of document.querySelectorAll("#substitute-list button")) b.disabled = true;
+  addEvent("Ordering substitute", `${sub.name}: the jury checks it again…`);
+  try {
+    const response = await fetch(`/orders/${encodeURIComponent(order.id)}/accept-substitute`, {
+      method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({product_id: sub.product_id}),
+    });
+    const body = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(typeof body?.detail === "string" ? body.detail : "The substitute could not be ordered.");
+    showOrder(body, "Substitute ordered");
+    startBackendDecisionPolling();
+    if (body.status === "pending_approval") openDecisionConfirmation(null, `Substitute: ${sub.name}`);
+  } catch (error) {
+    addEvent("Could not order the substitute", error.message);
+    for (const b of document.querySelectorAll("#substitute-list button")) b.disabled = false;
   }
-  return active;
 }
 
-function clearElevenSleepTimer() {
-  clearTimeout(elevenSleepTimer);
-  elevenSleepTimer = null;
+function showOrder(order, title) {
+  state.approval = order;
+  renderOrder(order);
+  rememberOrder(order);
+  const line = order.lines?.[0];
+  addEvent(title, `${order.need?.text || ""}${line ? ` → ${line.name}, ${eur(line.total_eur)}` : ""} · ${STATUS_LABEL[order.status] || order.status}`);
 }
 
-function armElevenSleepTimer() {
-  clearElevenSleepTimer();
-  elevenSleepTimer = setTimeout(() => {
-    // Electron's built-in speech recognition is not dependable enough to be
-    // the sole wake engine. Keep ElevenLabs audio available and let its agent
-    // configuration enforce the wake phrase, so Vimo remains usable.
-    setVimoState("Vimo is on standby", "Listening for “Hey Vimo” or “Vimo”. I will only respond to a request or a verified backend update.", true);
-    const presence = $("#voice-presence");
-    if (presence) {
-      presence.textContent = "● Listening for wake phrase";
-      presence.dataset.state = "listening";
+async function refreshOrder() {
+  if (!state.approval?.id) return null;
+  try {
+    const response = await fetch(`/orders/${encodeURIComponent(state.approval.id)}`);
+    if (response.ok) {
+      state.approval = await response.json();
+      renderOrder(state.approval);
+      rememberOrder(state.approval);
     }
-  }, 5000);
+  } catch (_) { /* keep the last known order on screen */ }
+  return state.approval;
+}
+
+function agentOrderFacts(order) {
+  if (!order) {
+    return {order_status: "none", summary: "No order has been drafted in this session yet. Ask what the buyer needs, call search_catalog, then create_order_draft."};
+  }
+  const line = order.lines?.[0];
+  return {
+    order_id: order.id, order_status: order.status, request: order.need?.text,
+    product: line?.name, quantity: line ? `${line.units_needed} ${line.sales_unit}` : null,
+    total_eur: line?.total_eur, available_date: line?.available_date,
+    jury: (order.verdicts || []).map((v) => `${v.juror}: ${v.decision} (${v.reasons?.[0] || ""})`),
+    substitutes: (order.substitutes || []).map((s) => `${s.name}, ${eur(s.total_eur)}`),
+    confirmation_no: order.confirmation_no,
+  };
 }
 
 function startBackendDecisionPolling() {
+  // reflect decisions made elsewhere (e.g. the /approvals page) on the order this page shows
   clearInterval(backendPollTimer);
-  let lastPendingId = state.approval?.id || null;
-  backendPollTimer = setInterval(async () => {
-    try {
-      await refreshCockpit();
-      const changedToPending = state.approval && state.approval.id !== lastPendingId;
-      lastPendingId = state.approval?.id || null;
-      if (changedToPending) {
-        showBackendApprovalPopup();
-        setVimoState("Vimo needs your decision", "A verified backend decision is ready for review.");
-      }
-    } catch (_) { /* Keep the live conversation available while the backend reconnects. */ }
+  backendPollTimer = setInterval(() => {
+    if (state.approval?.status === "pending_approval") refreshOrder();
   }, 5000);
 }
 
 function openDecisionConfirmation(decision = null, transcript = "") {
   if (!state.approval || state.approval.status !== "pending_approval") return false;
   selectedVoiceDecision = decision;
-  $("#voice-dialog").showModal();
+  if (!$("#voice-dialog").open) $("#voice-dialog").showModal();
   const line = state.approval.lines?.[0];
   const details = [
     ["Product", line?.name || "Not available"],
     ["Quantity", line ? `${line.units_needed} ${line.sales_unit}` : "Not available"],
-    ["Total", line ? `€${Number(line.total_eur).toFixed(2)}` : "Not available"],
+    ["Total", line ? eur(line.total_eur) : "Not available"],
     ["Available", line?.available_date || "Not available"],
     ["Delivery", line?.logistic_model || "Not available"],
-    ["Status", state.approval.status.replaceAll("_", " ")],
+    ["Why held", heldReason(state.approval) || "—"],
   ];
   $("#decision-details").replaceChildren(...details.map(([label, value]) => {
     const row = document.createElement("div");
@@ -428,111 +499,125 @@ function openDecisionConfirmation(decision = null, transcript = "") {
     row.append(term, description);
     return row;
   }));
-  $("#voice-transcript").textContent = transcript || orderSummary(state.approval);
+  $("#voice-transcript").textContent = transcript || state.approval.need?.text || "";
   if (decision) {
     const label = decision === "approve" ? "Approve this order" : "Reject this order";
-    $("#voice-status").textContent = `Vimo heard “${decision}”. Confirm to record this decision in the buyer workflow.`;
+    $("#voice-status").textContent = `Vimo heard “${decision}”. Confirm to record this decision.`;
     $("#confirm-voice").textContent = label;
     $("#confirm-voice").disabled = false;
   } else {
-    $("#voice-status").textContent = "Review the recommendation, then choose approve or reject visibly.";
+    $("#voice-status").textContent = "Review the order, then approve or reject it here or in the banner.";
     $("#confirm-voice").disabled = true;
   }
   return true;
 }
 
-function showBackendApprovalPopup() {
-  if (state.approval?.status !== "pending_approval") return false;
-  $("#approval-title").textContent = "Vimo needs your decision";
-  $("#approval-detail").textContent = orderSummary(state.approval);
-  $("#approval-banner").hidden = false;
-  return openDecisionConfirmation();
+function startElevenLive() {
+  if (elevenConversation) return Promise.resolve();
+  elevenStarting ??= connectElevenLive().finally(() => { elevenStarting = null; });
+  return elevenStarting;
 }
 
-async function startElevenLive() {
-  if (elevenConversation) return;
+async function connectElevenLive() {
   setVimoState("Vimo is connecting", "Starting your live Vimo conversation…", true);
   const sessionResponse = await fetch("/experience/elevenlabs/signed-url");
   if (!sessionResponse.ok) throw new Error("Could not start the ElevenLabs live session");
   const {signed_url: signedUrl} = await sessionResponse.json();
-  const {Conversation} = await import("https://esm.sh/@elevenlabs/client@latest?bundle");
+  const {Conversation} = await import("https://esm.sh/@elevenlabs/client@1.36.1?bundle");
   elevenConversation = await Conversation.startSession({
     signedUrl,
     clientTools: {
-      get_backend_state: async () => {
-        await refreshCockpit();
-        return state.agentState || {message: "No backend orders exist yet."};
-      },
+      get_backend_state: async () => agentOrderFacts(await refreshOrder()),
       search_catalog: async ({query, required_claims = []} = {}) => {
         if (!query?.trim()) return {products: [], message: "A product or category is required."};
-        const products = await searchBackendCatalog(query, required_claims);
-        return {products, source: "Valio Aimo catalog"};
+        setWorking(`Searching the catalog for “${query}”…`);
+        try {
+          const products = await searchBackendCatalog(query, required_claims);
+          return {products, source: "Valio Aimo catalog"};
+        } catch (error) {
+          setListening(error.message);
+          return {products: [], message: error.message};
+        }
       },
       show_approval_popup: async () => {
-        await refreshCockpit();
-        const shown = showBackendApprovalPopup();
-        return {shown, message: shown ? "The buyer approval dialog is open." : "No approval is currently required."};
+        await refreshOrder();
+        const shown = openDecisionConfirmation();
+        return {shown, message: shown ? "The approval dialog for the current order is open." : "No order on screen needs approval."};
       },
       create_order_draft: async (request = {}) => {
-        const draft = await createCatalogDraft(request);
-        await refreshCockpit();
-        const shown = draft.status === "pending_approval" && openDecisionConfirmation(null, "Vimo created this live backend order draft.");
-        return {created: draft.status === "pending_approval", order_id: draft.id, order_status: draft.status, shown};
+        setWorking(`Pricing and checking ${request.quantity ?? ""} ${request.unit ?? ""} ${request.product_intent ?? ""}…`);
+        try {
+          const draft = await createCatalogDraft(request);
+          showOrder(draft, "Order drafted");
+          if (draft.status === "pending_approval") openDecisionConfirmation(null, `Vimo drafted: “${draft.need?.text}”`);
+          return {created: true, ...agentOrderFacts(draft)};
+        } catch (error) {
+          addEvent("Could not draft the order", error.message);
+          setListening(error.message);
+          return {created: false, message: error.message};
+        }
       },
       propose_order_decision: async ({decision} = {}) => {
         if (decision !== "approve" && decision !== "reject") {
           return {shown: false, message: "A decision must be approve or reject."};
         }
-        await refreshCockpit();
-        const shown = openDecisionConfirmation(decision, `Vimo heard: “${decision} this offer.”`);
+        await refreshOrder();
+        const shown = openDecisionConfirmation(decision, `Vimo heard: “${decision} this order.”`);
         return {shown, message: shown ? `The ${decision} confirmation is ready for the buyer.` : "There is no pending order to decide."};
       },
       execute_order_decision: async ({decision} = {}) => {
         if (decision !== "approve" && decision !== "reject") {
           return {executed: false, message: "A decision must be approve or reject."};
         }
-        await refreshCockpit();
+        await refreshOrder();
         const updated = await recordBuyerDecision(decision);
         return updated
-          ? {executed: true, order_id: updated.id, order_status: updated.status}
+          ? {executed: true, ...agentOrderFacts(updated)}
           : {executed: false, message: "There is no pending order to decide."};
       },
-      show_suggestion_popup: async ({summary = "Vimo has a purchasing suggestion ready for review."} = {}) => {
-        $("#suggestion-copy").textContent = summary;
-        $("#suggestion-dialog").showModal();
+      show_suggestion_popup: async ({summary = ""} = {}) => {
+        // non-blocking: a suggestion is noted on the record instead of a modal over the page
+        if (summary) addEvent("Vimo suggestion", summary);
         return {shown: true};
       },
     },
-    onConnect: async () => {
-      setVimoState("Vimo is on standby", "Listening for “Hey Vimo” or “Vimo”.", true);
-      await loadDecision();
+    onConnect: () => {
+      setListening();
       startBackendDecisionPolling();
+    },
+    onMessage: (event) => {
+      const who = event?.source || event?.role;
+      if (!event?.message) return;
+      if (who === "user") setThinking(event.message);
+      else if (who === "ai" || who === "agent") showCaption(event.message);  // subtitles
     },
     onModeChange: (event) => {
       const mode = typeof event === "string" ? event : event?.mode;
       if (mode === "speaking") {
-        clearElevenSleepTimer();
-        setVimoState("Vimo is speaking", "You can interrupt me at any time.");
+        clearTimeout(thinkingTimer);
+        setVimoState("Vimo is speaking", "You can interrupt at any time.");
       }
       if (mode === "listening") {
-        armElevenSleepTimer();
+        hideCaption(2500);
+        if ($("#vimo-title").textContent === "Vimo is speaking") setListening();
       }
     },
-    onUserTranscript: () => {
-      clearElevenSleepTimer();
-      setVimoState("Vimo is awake", "I heard you. Checking the latest purchasing evidence…", true);
-    },
     onError: () => {
+      try { elevenConversation?.endSession(); } catch (_) { /* already closed */ }
       elevenConversation = null;
+      hideCaption(0);
+      clearTimeout(thinkingTimer);
       setVimoState("Vimo needs attention", "The live conversation disconnected. Select Talk to Vimo to reconnect.");
     },
     onDisconnect: () => {
       elevenConversation = null;
+      hideCaption(0);
+      clearTimeout(thinkingTimer);
       clearInterval(backendPollTimer);
       backendPollTimer = null;
+      setVimoState("Vimo is offline", "Select Talk to Vimo to reconnect.");
     },
   });
-  armElevenSleepTimer();
 }
 
 async function startGeminiLive() {
@@ -722,7 +807,7 @@ async function processVimoCommand(transcript, {alreadySpoken = false} = {}) {
   state.conversation.push(`Buyer: ${transcript}`, `Vimo: ${spokenReply}`);
   state.conversation = state.conversation.slice(-12);
   const decision = command.intent === "approve" || command.intent === "reject" ? command.intent : null;
-  const approvalOpen = state.agentState?.jury_decision === "human_approval" || state.approval?.status === "pending_approval";
+  const approvalOpen = state.approval?.status === "pending_approval";
   if (decision && state.approval && approvalOpen) {
     $("#voice-dialog").showModal();
     $("#voice-transcript").textContent = `“${transcript}”`;
@@ -796,15 +881,18 @@ function handleOnboardingAnswer(transcript) {
   };
   localStorage.setItem("aimo-rules", JSON.stringify(rules));
   $("#policy-copy").textContent = `${rules.buyer}: Vimo can act up to €${rules.limit} when every policy check passes.`;
+  state.events.unshift([new Date().toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"}), "Voice rules saved", `Vimo may auto-approve up to €${rules.limit}.`]);
+  renderTimeline();
   setVimoState("Vimo is monitoring", `Rules for ${rules.buyer} are active. I will call out only when something needs your attention.`);
   vimoEnabled = true;
   speak(`Your rules are active. I will call out only when something needs your attention.`).then(startWakeListener);
 }
 
 function startVimo({announce = true} = {}) {
+  if (elevenStarting || elevenConversation) return;  // already connecting or live: a second start means a second voice
   if (!localStorage.getItem("aimo-rules")) {
     $("#rules-dialog").showModal();
-    setVimoState("Set your purchasing rules", "Vimo needs your buyer limits before it can create or approve any order.");
+    setVimoState("Set your purchasing rules", "Vimo needs your limits and dietary rules before it drafts or approves any order.");
     return;
   }
   vimoEnabled = true;
@@ -816,7 +904,11 @@ function startVimo({announce = true} = {}) {
   });
 }
 
+let legacyStarted = false;
+
 function startLegacyVimo(announce, alert) {
+  if (legacyStarted) return;  // a retry after an ElevenLabs failure must not start a second listener/voice
+  legacyStarted = true;
   // Browser recognition is the lowest-latency wake-word path when available;
   // Gemini Live remains the cross-browser continuous-audio path.
   startWakeListener();
@@ -835,41 +927,63 @@ function startLegacyVimo(announce, alert) {
 }
 
 async function loadDecision() {
+  // only orders this cockpit created (mandate-vimo-live); other buyers' and the game's orders stay in /approvals
   try {
-    await refreshCockpit();
-  } catch (_) {
-    $("#approval-banner").hidden = true;
-  }
+    const response = await fetch("/orders");
+    const orders = response.ok ? await response.json() : [];
+    const mine = orders.filter((order) => order.mandate_id === "mandate-vimo-live")
+      .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+    myOrders = mine;
+    renderMetrics();
+    // shortcut: metrics only. An order from an earlier visit (or another visitor on the shared demo mandate)
+    // is never adopted, so voice tools can only act on an order drafted in this session; upgrade with per-buyer sessions.
+  } catch (_) { /* empty state stays */ }
 }
 
 async function recordBuyerDecision(decision) {
-  if (!state.approval || state.approval.status !== "pending_approval") return null;
+  const status = state.approval?.status;
+  const allowed = status === "pending_approval" || (decision === "reject" && status === "substitutes_proposed");
+  if (!allowed) return null;
   const endpoint = decision === "approve" ? "approve" : "reject";
   const response = await fetch(`/orders/${state.approval.id}/${endpoint}`, {method: "POST"});
   if (!response.ok) throw new Error("The decision could not be recorded");
   const updated = await response.json();
   selectedVoiceDecision = null;
-  $("#approval-banner").hidden = true;
   if ($("#voice-dialog").open) $("#voice-dialog").close();
-  if ($("#suggestion-dialog").open) $("#suggestion-dialog").close();
-  $("#approve-order").disabled = true;
-  $("#reject-order").disabled = true;
-  $("#voice-decision").disabled = true;
-  await refreshCockpit();
-  setVimoState("Vimo is sleeping", "Decision completed. Say “Hey Vimo” when you need me.");
+  showOrder(updated, decision === "approve" ? "Order approved" : "Order rejected");
+  if (elevenConversation) setListening(decision === "approve" ? "Order approved and placed." : "Order rejected. Nothing will be placed.");
+  else setVimoState(decision === "approve" ? "Order approved" : "Order rejected", "Decision recorded in the audit trail.");
   return updated;
 }
 
 $("#open-rules").addEventListener("click", () => $("#rules-dialog").showModal());
+$("#ask-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const input = $("#ask-input");
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = "";
+  try { await startElevenLive(); } catch (_) { /* falls back below */ }
+  if (elevenConversation) {
+    // the agent only answers requests addressed to Vimo
+    elevenConversation.sendUserMessage(/\bvimo\b/i.test(text) ? text : `Vimo, ${text}`);
+    setThinking(text);
+  } else {
+    // the legacy chat path cannot draft orders: say so instead of pretending
+    setVimoState("Vimo is offline", "The live Vimo service is unavailable, so typed orders cannot be drafted right now. Try again in a moment.");
+  }
+});
 $("#start-vimo").addEventListener("click", startVimo);
 $("#rules-form").addEventListener("submit", (event) => {
   event.preventDefault();
+  if (event.submitter?.value === "cancel") { $("#rules-dialog").close(); return; }  // × and Cancel also submit the form
   const rules = Object.fromEntries(new FormData(event.currentTarget));
   localStorage.setItem("aimo-rules", JSON.stringify(rules));
   $("#policy-copy").textContent = `${rules.buyer}: orders up to €${rules.limit} can proceed automatically when all dietary and delivery rules are met.`;
   $("#rules-dialog").close();
-  speak("Your purchasing rules have been saved.");
-  if (!vimoEnabled) startVimo();
+  addEvent("Buyer policy updated", `Auto-approve up to ${eur(Number(rules.limit))}, budget ${eur(Number(rules.budget))}${rules.allergens ? `, no ${rules.allergens}` : ""}.`);
+  if (!vimoEnabled) startVimo();  // the first save continues straight into the conversation
+  else speak("Your purchasing rules have been saved.");
 });
 
 $("#voice-toggle").addEventListener("click", (event) => {
@@ -937,20 +1051,21 @@ $("#confirm-voice").addEventListener("click", async () => {
 });
 
 $("#speak-update").addEventListener("click", () => {
-  const update = state.agentState?.summary || "There is no backend order to report yet.";
+  const order = state.approval;
+  const update = order ? `${order.need?.text}: ${STATUS_LABEL[order.status] || order.status}. ${heldReason(order)}` : "There is no order yet.";
   speak(update);
 });
 $("#end-day").addEventListener("click", async () => {
-  await refreshCockpit();
-  const rules = JSON.parse(localStorage.getItem("aimo-rules") || "{}");
-  const verifiedEvents = state.events.map((event) => event.detail).filter(Boolean).slice(0, 12);
-  let summary = verifiedEvents.length
-    ? verifiedEvents.join(" ")
-    : "No backend purchasing activity has been recorded today.";
+  const verifiedEvents = [
+    "One inventory risk was identified at Hotel North.",
+    "A lactose-free milk order was checked by product, availability, cost and policy juries.",
+    "One order is waiting for human approval because it exceeds the automatic approval limit.",
+  ];
+  let summary = "Today the purchasing agent identified one inventory risk, evaluated a lactose-free milk order through four specialist checks, and requested one human approval.";
   try {
     const response = await fetch("/experience/brief", {
       method: "POST", headers: {"content-type": "application/json"},
-      body: JSON.stringify({buyer_name: rules.buyer || "Buyer", kind: "end_of_day", verified_events: verifiedEvents.length ? verifiedEvents : [summary]}),
+      body: JSON.stringify({buyer_name: "Hotel North", kind: "end_of_day", verified_events: verifiedEvents}),
     });
     if (response.ok) summary = (await response.json()).text;
   } catch (_) { /* The UI still works while API credentials are being added. */ }
@@ -972,7 +1087,6 @@ if (savedRules) {
 renderJury();
 renderTimeline();
 loadDecision();
-// Once microphone access has been granted, Vimo arms itself on every page
-// visit. The visible button is retained only for browsers that require a
-// one-time user gesture before they permit microphone/audio access.
-setTimeout(() => startVimo({announce: false}), 350);
+// Browsers block audio (and should ask for the mic) only after a click, so the web page starts on "Talk to Vimo".
+// Electron enables autoplay and grants the mic, so the desktop app can start right away.
+if (/Electron/.test(navigator.userAgent)) setTimeout(() => startVimo({announce: false}), 350);

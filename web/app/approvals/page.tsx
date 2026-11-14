@@ -1,14 +1,19 @@
 "use client";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
 import { ago, api, eur, heldReason, LABEL, total, type Order, type Status } from "../api";
 
 const TABS = Object.keys(LABEL) as Status[];
 
-export default function Inbox() {
+export default function Page() {
+  return <Suspense fallback={<p>Loading...</p>}><Inbox /></Suspense>;
+}
+
+function Inbox() {
   const router = useRouter();
-  const [tab, setTab] = useState<Status>("pending_approval");
+  const initial = useSearchParams().get("status") as Status | null;  // deep links, e.g. from the cockpit's metric cards
+  const [tab, setTab] = useState<Status>(initial && Object.hasOwn(LABEL, initial) ? initial : "pending_approval");
   const [orders, setOrders] = useState<Order[] | null>(null);
   const [err, setErr] = useState("");
 
@@ -27,15 +32,19 @@ export default function Inbox() {
 
   return (
     <>
-      <h1>Order approvals</h1>
+      <section className="hero">
+        <p className="eyebrow">Order approvals</p>
+        <h1>Orders waiting for <em>your decision</em></h1>
+        <p className="lede">Review what the jury held, approve or reject, and check the audit trail.</p>
+      </section>
       <nav className="tabs" aria-label="Order status">
         {TABS.map((t) => (
           <button key={t} aria-current={t === tab} onClick={() => setTab(t)}>{LABEL[t]} ({count(t)})</button>
         ))}
       </nav>
       {err && <p className="err">{err}</p>}
-      {orders === null ? <p>Loading...</p> : rows.length === 0 ? <p className="muted">No orders with status {LABEL[tab].toLowerCase()}.</p> : (
-        <table>
+      {orders === null ? <p className="panel muted">Loading...</p> : rows.length === 0 ? <p className="panel muted">No orders with status {LABEL[tab].toLowerCase()}.</p> : (
+        <div className="panel flush"><div className="table-wrap"><table>
           <thead>
             <tr>
               <th scope="col">Order</th><th scope="col">Buyer</th><th scope="col">Product</th><th scope="col">Quantity</th>
@@ -52,11 +61,11 @@ export default function Inbox() {
                 <td className="num">{eur(total(o))}</td>
                 <td>{heldReason(o)}</td>
                 <td>{ago(o.created_at)}</td>
-                <td className={`s-${o.status}`}>{LABEL[o.status]}</td>
+                <td><span className={`status s-${o.status}`}>{LABEL[o.status]}</span></td>
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div></div>
       )}
     </>
   );

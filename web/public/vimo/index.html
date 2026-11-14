@@ -31,8 +31,14 @@
         <section class="vimo-call" aria-live="polite">
           <div class="vimo-orb" id="vimo-orb"><i></i><i></i><i></i></div>
           <div><p class="eyebrow">VIMO VOICE LINE</p><h2 id="vimo-title">Vimo is ready when you are</h2><p id="vimo-status">Start once to allow microphone access. After that, Vimo can guide setup and read important updates aloud.</p><p class="voice-presence" id="voice-presence" aria-live="polite">● Microphone standby</p></div>
-          <button class="secondary" id="open-rules">Type rules instead</button>
+          <button class="secondary" id="open-rules">Purchasing rules</button>
         </section>
+
+        <form class="ask-form" id="ask-form">
+          <label for="ask-input">Type to Vimo</label>
+          <input id="ask-input" autocomplete="off" placeholder="e.g. Order 1,000 L lactose-free milk by Monday" />
+          <button class="primary" type="submit">Send</button>
+        </form>
 
         <section class="approval-banner" id="approval-banner" hidden>
           <div class="approval-symbol">!</div>
@@ -48,25 +54,26 @@
           </div>
         </section>
 
-        <section class="metrics" aria-label="Today at a glance">
-          <article><p>Tracked orders</p><strong id="active-count">—</strong><span id="tracked-note">Loading backend records</span></article>
-          <article><p>Placed value</p><strong class="good" id="placed-value">—</strong><span>confirmed by the backend</span></article>
-          <article><p>Awaiting approval</p><strong class="warn" id="pending-count">—</strong><span>requires a buyer decision</span></article>
-          <article><p>Latest decision</p><strong id="decision-status">—</strong><span id="decision-note">Waiting for backend data</span></article>
+        <section class="metrics" aria-label="Your orders with Vimo">
+          <a class="metric-link" href="/approvals"><article><p>Orders with Vimo</p><strong id="m-orders">0</strong><span>drafted from this cockpit</span></article></a>
+          <a class="metric-link" href="/approvals?status=placed"><article><p>Placed</p><strong class="good" id="m-placed">€0</strong><span id="m-placed-n">0 orders</span></article></a>
+          <a class="metric-link" href="/approvals?status=pending_approval"><article><p>Awaiting approval</p><strong class="warn" id="m-pending">0</strong><span>held by the jury</span></article></a>
+          <a class="metric-link" href="/approvals?status=substitutes_proposed"><article><p>Substitutes proposed</p><strong id="m-subs">0</strong><span>pick one to order</span></article></a>
         </section>
 
         <section class="grid">
           <article class="panel decision-panel">
             <div class="panel-heading">
-              <div><p class="eyebrow">CURRENT DECISION</p><h2 id="decision-name">No active order</h2></div>
-              <span class="status" id="decision-badge">Waiting</span>
+              <div><p class="eyebrow">CURRENT DECISION</p><h2 id="decision-title">No order yet</h2></div>
+              <span class="status" id="decision-status">Waiting</span>
             </div>
-            <p class="request" id="decision-request">Create an order draft to see a live catalog, price, delivery and jury decision here.</p>
+            <p class="request" id="decision-request">Ask Vimo for what you need. The live order and the jury’s verdicts appear here.</p>
             <div class="jury" id="jury-list"></div>
             <div class="recommendation">
-              <div><p class="eyebrow">RECOMMENDATION</p><h3 id="recommendation-name">No recommendation yet</h3><p id="recommendation-detail">Live order details appear after backend evaluation.</p></div>
+              <div><p class="eyebrow">RECOMMENDATION</p><h3 id="rec-name">—</h3><p id="rec-detail"></p></div>
               <button class="text-button" id="speak-update">Hear update ↗</button>
             </div>
+            <div class="substitute-list" id="substitute-list" hidden></div>
           </article>
 
           <article class="panel activity-panel">
@@ -76,7 +83,7 @@
         </section>
 
         <section class="panel inventory-panel">
-          <div class="panel-heading"><div><p class="eyebrow">ORDER WATCH</p><h2>What needs attention next</h2></div><span class="muted" id="orders-updated">Loading backend data</span></div>
+          <div class="panel-heading"><div><p class="eyebrow">ORDER WATCH</p><h2>Your orders with Vimo</h2></div><a class="text-button" href="/approvals">All approvals ↗</a></div>
           <div id="order-watch"></div>
         </section>
       </main>
@@ -91,7 +98,7 @@
           <label>Auto-approve limit (€)<input name="limit" type="number" min="0" value="500" required /></label>
           <label>Order budget (€)<input name="budget" type="number" min="0" value="2000" required /></label>
           <label>Required claim<input name="claim" value="Lactose-free" /></label>
-          <label>Blocked allergens (codes, comma-separated)<input name="allergens" placeholder="e.g. AM, AW" /></label>
+          <label>Blocked allergens (GS1 codes, comma-separated)<input name="allergens" placeholder="e.g. AM, AW" /></label>
         </div>
         <label class="check"><input name="substitutes" type="checkbox" checked /> Allow substitutions that preserve dietary and allergen rules</label>
         <label class="check"><input name="strict_allergens" type="checkbox" /> Escalate when allergen evidence is incomplete</label>
@@ -116,6 +123,7 @@
       <p class="dialog-copy" id="suggestion-copy"></p>
       <div class="dialog-actions"><button class="primary" id="acknowledge-suggestion">Got it</button></div>
     </dialog>
+    <div class="vimo-caption" id="vimo-caption" popover="manual" aria-hidden="true"></div>
     <script src="app.js"></script>
   </body>
 </html>
