@@ -1,0 +1,11 @@
+{
+  "id": "mandate-hospital-001",
+  "buyer_name": "Helsinki Central Hospital",
+  "buyer_type": "hospital",
+  "budget_per_order_eur": 5000.0,
+  "auto_approve_limit_eur": 1000.0,
+  "required_claims": [],
+  "banned_allergens": ["AW", "AE", "AN"],
+  "strict_allergens": true,
+  "substitutes_allowed": true
+}

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any, Protocol
 
-from contracts import Mandate, Need, OffersRequest, OrderRequest
+from contracts import Mandate, Need, Offer, OffersRequest, Order, OrderRequest
 
 
 class MCPTools(Protocol):
@@ -44,8 +44,8 @@ class BuyerResult:
     message: str
     need: Need
     order_id: str | None = None
-    offers: tuple[dict[str, Any], ...] = ()
-    order: dict[str, Any] | None = None
+    offers: tuple[Offer, ...] = ()
+    order: Order | None = None
 
 
 def parse_need(request: str, *, today: date | None = None) -> Need:
@@ -88,23 +88,25 @@ class BuyerAgent:
         if not product_ids:
             return BuyerResult("rejected", f"No catalog products match '{need.product_intent}'.", need)
         offers_request = OffersRequest(need=need, product_ids=product_ids, delivery_date=need.deliver_by)
-        offers = await self._tools.call("get_offers", request=offers_request)
+        raw_offers = await self._tools.call("get_offers", request=offers_request)
+        offers = [Offer.model_validate(offer) for offer in raw_offers]
         if not offers:
             return BuyerResult("rejected", "No deliverable offers were returned.", need)
         # The phrase is an explicit demo condition, not a fabricated stock assertion:
         # the server's Tier 0 juror produces the substitute path from this evidence.
         if "out of stock" in request.lower():
-            offers = [{**offer, "sales_block": True, "evidence": {**offer["evidence"], "stock": "none"}}
-                      if index == 0 else offer for index, offer in enumerate(offers)]
+            offers[0] = offers[0].model_copy(update={"sales_block": True,
+                "evidence": offers[0].evidence.model_copy(update={"stock": "none"})})
         order_request = OrderRequest(mandate_id=profile.mandate.id, need=need, lines=offers)
-        order = await self._tools.call("place_order", request=order_request)
-        status = order["status"]
-        confirmation = f" (confirmation {order['confirmation_no']})" if order.get("confirmation_no") else ""
+        raw_order = await self._tools.call("place_order", request=order_request)
+        order = Order.model_validate(raw_order)
+        status = order.status
+        confirmation = f" (confirmation {order.confirmation_no})" if order.confirmation_no else ""
         messages = {
-            "placed": f"Order {order['id']} was placed{confirmation}.",
-            "pending_approval": f"Order {order['id']} is waiting for human approval.",
-            "substitutes_proposed": f"Order {order['id']} needs substitutes; review the proposed alternatives.",
-            "rejected": f"Order {order['id']} was rejected.",
+            "placed": f"Order {order.id} was placed{confirmation}.",
+            "pending_approval": f"Order {order.id} is waiting for human approval.",
+            "substitutes_proposed": f"Order {order.id} needs substitutes; review the proposed alternatives.",
+            "rejected": f"Order {order.id} was rejected.",
         }
-        return BuyerResult(status, messages.get(status, f"Order {order['id']} returned status {status}."), need,
-                           order_id=order["id"], offers=tuple(offers), order=order)
+        return BuyerResult(status, messages.get(status, f"Order {order.id} returned status {status}."), need,
+                           order_id=order.id, offers=tuple(offers), order=order)

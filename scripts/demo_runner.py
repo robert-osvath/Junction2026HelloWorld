@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
 from dataclasses import dataclass
 from datetime import date
 from typing import Any, Awaitable, Callable, Protocol
@@ -41,7 +42,8 @@ def _substitutes(result: Any) -> list[dict[str, Any]]:
     direct = _field(result, "substitutes")
     if direct is not None:
         return direct
-    return (_field(result, "order") or {}).get("substitutes", [])
+    order = _field(result, "order")
+    return (order.get("substitutes", []) if isinstance(order, dict) else getattr(order, "substitutes", [])) or []
 
 
 async def run_demo(agent: BuyerAgent, approve_order: ApproveOrder, verify_audit: VerifyAudit) -> list[DemoOutcome]:
@@ -86,14 +88,50 @@ def _http_callbacks(base_url: str) -> tuple[ApproveOrder, VerifyAudit]:
     return approve, verify
 
 
+async def _start_clean_local_api() -> tuple[str, asyncio.subprocess.Process]:
+    """Start a disposable in-memory-order API so the demo needs one command."""
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = {**os.environ, "DB_URL": ""}
+    port = "8765"
+    process = await asyncio.create_subprocess_exec(
+        sys.executable, "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", port,
+        cwd=root, env=env, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
+    )
+    base_url = f"http://127.0.0.1:{port}"
+    async with httpx.AsyncClient(timeout=1.0) as client:
+        for _ in range(50):
+            if process.returncode is not None:
+                error = (await process.stderr.read()).decode(errors="replace") if process.stderr else ""
+                raise RuntimeError(f"Local API exited during startup: {error}")
+            try:
+                if (await client.get(f"{base_url}/health")).is_success:
+                    return base_url, process
+            except httpx.HTTPError:
+                pass
+            await asyncio.sleep(0.1)
+    process.terminate()
+    await process.wait()
+    raise RuntimeError("Local API did not become healthy within 5 seconds")
+
+
 async def main() -> None:
     from agent.buyer import BuyerAgent as MCPBuyerAgent
-    from agent.mcp_tools import LocalMCPTools
+    from agent.mcp_tools import StdioMCPTools
 
-    approve, verify = _http_callbacks(os.getenv("AIMO_API_URL", "http://127.0.0.1:8000"))
-    outcomes = await run_demo(MCPBuyerAgent(LocalMCPTools()), approve, verify)
-    for outcome in outcomes:
-        print(f"{outcome.scenario}: {outcome.order_id} {outcome.status}")
+    base_url = os.getenv("AIMO_API_URL")
+    process = None
+    if base_url is None:
+        base_url, process = await _start_clean_local_api()
+    try:
+        approve, verify = _http_callbacks(base_url)
+        async with StdioMCPTools(base_url=base_url) as tools:
+            outcomes = await run_demo(MCPBuyerAgent(tools), approve, verify)
+        for outcome in outcomes:
+            print(f"{outcome.scenario}: {outcome.order_id} {outcome.status}")
+    finally:
+        if process is not None and process.returncode is None:
+            process.terminate()
+            await process.wait()
 
 
 if __name__ == "__main__":

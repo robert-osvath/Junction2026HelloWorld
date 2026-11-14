@@ -37,7 +37,11 @@ def test_buyer_runs_search_offers_and_order_through_mcp():
                     "evidence": {"stock": "verified", "allergens": "declared"},
                 }]
             assert name == "place_order"
-            return {"id": "order-1", "status": "placed", "confirmation_no": "AIMO-SIM-1"}
+            request = arguments["request"]
+            return {"id": "order-1", "mandate_id": request.mandate_id,
+                    "need": request.need.model_dump(mode="json"),
+                    "lines": [line.model_dump(mode="json") for line in request.lines],
+                    "status": "placed", "confirmation_no": "AIMO-SIM-1"}
 
     def run_immediate(coroutine):
         try:
