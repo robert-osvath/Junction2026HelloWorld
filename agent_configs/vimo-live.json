@@ -150,7 +150,11 @@
     "conversation": {
       "client_events": [
         "audio",
-        "interruption"
+        "interruption",
+        "agent_response",
+        "agent_response_correction",
+        "user_transcript",
+        "client_tool_call"
       ],
       "max_duration_seconds": 600,
       "text_only": false

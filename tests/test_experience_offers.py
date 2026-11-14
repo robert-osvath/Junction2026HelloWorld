@@ -1,5 +1,5 @@
 """Vimo cockpit: create-draft explains why a product has no offer (no network: fake Valio client)."""
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -10,7 +10,7 @@ from app.main import app
 from contracts import Need
 from tests.conftest import fake_aimo_transport
 
-D = date(2026, 11, 16)
+D = date.today() + timedelta(days=3)  # create-draft rejects past dates: never hard-code one
 
 
 @pytest.fixture
@@ -104,3 +104,12 @@ def test_create_draft_rejects_free_text_allergens(fake_client):
         "deliver_by": D.isoformat(), "banned_allergens": ["AM", "gluten"],
     })
     assert r.status_code == 422 and r.json()["detail"].startswith("Unknown allergen code(s): gluten")
+
+
+def test_create_draft_rejects_a_past_delivery_date_with_today(fake_client):
+    r = TestClient(app).post("/experience/create-draft", json={
+        "buyer_name": "My kitchen", "auto_approve_limit": 300, "budget": 900,
+        "product_id": "463038", "product_intent": "milk", "quantity": 10, "unit": "L",
+        "deliver_by": "2025-11-17",
+    })
+    assert r.status_code == 422 and "is in the past. Today is" in r.json()["detail"]
