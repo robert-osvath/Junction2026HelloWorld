@@ -3,7 +3,9 @@
 Candidates (catalog search under the mandate's hard rules) are priced live, then the jury judges EACH
 alternative on its own (`aggregate_verdicts` treats offers as lines of one order, so it is called once
 per alternative, never with all of them). Ranking of acceptable alternatives:
-  1. auto_order before human_approval, 2. lowest total_eur, 3. highest mean juror confidence.
+  jury decision (auto_order before human_approval) -> cheapest total_eur -> highest mean juror confidence.
+Product-type fit (is this really what the buyer meant by "milk"?) is the jury's, i.e. the spec juror's,
+responsibility: the ranking never second-guesses it.
 A substitution only happens when NO alternative meets need + policy: then near alternatives are
 proposed for approval. Banned allergens are never relaxed.
 """
@@ -23,6 +25,10 @@ from contracts import (JuryRequest, JuryResult, Mandate, Need, Offer, OffersRequ
                        SubstitutesRequest)
 
 MAX_WORKERS = 5
+
+
+class NoOffers(Exception):
+    """A product hint produced no offer at all (and `strict_hint` was set)."""
 
 
 @dataclass
@@ -78,14 +84,11 @@ def _comparison_summary(alts: list[Alternative], best: Alternative | None) -> st
 
 
 def order_from_need(mandate: Mandate, need: Need, *, product_hint: str | None = None,
-                    simulate_out_of_stock: bool = False, max_candidates: int = 8) -> Order:
-    """Place (or escalate) an order for a need. `simulate_out_of_stock` is an explicit demo switch: it marks
+                    simulate_out_of_stock: bool = False, max_candidates: int = 8,
+                    strict_hint: bool = False) -> Order:
+    """Place (or escalate) an order for a need. With `strict_hint`, a hint that yields no offers at all
+    raises NoOffers before anything is persisted (the caller explains why). `simulate_out_of_stock` is an explicit demo switch: it marks
     every candidate offer sales-blocked / no stock before judging, to exercise the substitute path."""
-    oid = f"order-{uuid.uuid4().hex[:12]}"
-    _audit(oid, "buyer-agent", "order.requested",
-           {"mandate_id": mandate.id, "need": need.model_dump(mode="json"), "product_hint": product_hint,
-            "simulate_out_of_stock": simulate_out_of_stock},
-           f"{mandate.buyer_name} requested {need.quantity:g} {need.unit}: {need.text}")
     conn = store.connect()
     try:
         ids = _candidate_ids(conn, mandate, need, product_hint, max_candidates)
@@ -93,6 +96,13 @@ def order_from_need(mandate: Mandate, need: Need, *, product_hint: str | None = 
                                                               delivery_date=need.deliver_by)) if ids else []
     finally:
         conn.close()
+    if strict_hint and product_hint and not offers:
+        raise NoOffers(product_hint)  # decided before anything is persisted or audited
+    oid = f"order-{uuid.uuid4().hex[:12]}"
+    _audit(oid, "buyer-agent", "order.requested",
+           {"mandate_id": mandate.id, "need": need.model_dump(mode="json"), "product_hint": product_hint,
+            "simulate_out_of_stock": simulate_out_of_stock},
+           f"{mandate.buyer_name} requested {need.quantity:g} {need.unit}: {need.text}")
     if simulate_out_of_stock:
         offers = [o.model_copy(update={"sales_block": True,
                                        "evidence": o.evidence.model_copy(update={"stock": "none"})})

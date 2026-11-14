@@ -97,15 +97,26 @@ def save(mandate: Mandate) -> Mandate:
         return saved
 
 
-def get(policy_id: str) -> Mandate | None:
-    cached = POLICIES.get(policy_id) or MANDATES.get(policy_id)
+def resolve(mandate_id: str | None) -> Mandate | None:
+    """The one mandate lookup: cache (saved/fixture/default) -> store -> deterministic rebuild of a
+    `default-<slug>` policy (so orders under it stay actionable after a restart)."""
+    if not mandate_id:
+        return None
+    cached = POLICIES.get(mandate_id) or MANDATES.get(mandate_id)
     if cached is not None:
         return cached
-    saved = _store_for_runtime().get(policy_id)
+    with _lock:
+        saved = _store_for_runtime().get(mandate_id)
     if saved is not None:
-        POLICIES[policy_id] = saved
-        MANDATES[policy_id] = saved
-    return saved
+        POLICIES[saved.id] = saved
+        MANDATES[saved.id] = saved
+        return saved
+    if mandate_id.startswith("default-") and len(mandate_id) > len("default-"):
+        return default(mandate_id[len("default-"):].replace("-", " ").title())
+    return None
+
+
+get = resolve
 
 
 def default(buyer_name: str | None = None) -> Mandate:

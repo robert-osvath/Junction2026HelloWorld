@@ -1,11 +1,13 @@
 """P4. Orders (T12) and audit (T13)."""
+import math
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.catalog.aimo import AimoError
-from app.orders import flow, service
+from app.catalog.offers import InvalidOfferRequest
+from app.orders import flow, policies, service
 from app.orders.audit import get_store
 from app.orders.store import get_order_store
 from contracts import AcceptSubstituteRequest, AuditEvent, AuditVerify, Need, Order, OrderRequest, RejectRequest
@@ -27,15 +29,18 @@ class FromNeedRequest(BaseModel):
 
 @router.post("/orders/from-need")
 def create_order_from_need(req: FromNeedRequest) -> Order:
-    from app.orders import policies
-    mandate = policies.get(req.mandate_id) if req.mandate_id else policies.current()
+    mandate = policies.resolve(req.mandate_id) if req.mandate_id else policies.current()
     if mandate is None:
         raise HTTPException(404, f"unknown mandate {req.mandate_id!r}")
+    if not (math.isfinite(req.need.quantity) and req.need.quantity > 0):
+        raise HTTPException(422, "quantity must be a positive finite number")
     try:
         return flow.order_from_need(mandate, req.need, product_hint=req.product_hint,
                                     simulate_out_of_stock=req.simulate_out_of_stock)
     except AimoError as e:
         raise HTTPException(502, "Valio Aimo API unavailable") from e
+    except InvalidOfferRequest as e:
+        raise HTTPException(422, str(e)) from e
 
 
 @router.get("/orders")

@@ -8,7 +8,7 @@ from fastapi import HTTPException
 
 from app.jury.router import evaluate, substitutes
 from app.orders.audit import get_store
-from app.orders.mandates import MANDATES
+from app.orders import policies
 from app.orders.store import get_order_store
 from contracts import JuryRequest, Mandate, Need, Offer, Order, OrderRequest, SubstitutesRequest, Verdict
 
@@ -35,7 +35,7 @@ def _confirm() -> str:
 
 
 def create(req: OrderRequest) -> Order:
-    mandate = MANDATES.get(req.mandate_id)
+    mandate = policies.resolve(req.mandate_id)
     if mandate is None:
         raise HTTPException(404, f"unknown mandate {req.mandate_id!r}")
     if not req.lines:

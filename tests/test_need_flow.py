@@ -152,3 +152,84 @@ def test_endpoint_places_an_order(monkeypatch):
     r = TestClient(app).post("/orders/from-need", json={"mandate_id": "mandate-hotel-001",
                                                        "need": NEED.model_dump(mode="json")})
     assert r.status_code == 200 and r.json()["status"] == "placed"
+
+
+# --- review fixes ---
+
+def _forget_non_fixture_mandates():
+    """Simulate a restart: only fixture mandates survive."""
+    from app.orders import mandates, policies
+    keep = {"mandate-hotel-001", "mandate-hotel-tight", "mandate-hospital-001", "mandate-vimo-live"}
+    for reg in (policies.POLICIES, mandates.MANDATES):
+        for k in [k for k in reg if k not in keep]:
+            del reg[k]
+
+
+def test_default_policy_has_no_claim_or_allergen_rules():
+    from app.orders import policies
+    for m in (policies.default(), policies.default("Cafe Uusi"), policies.current("Another One")):
+        assert m.required_claims == [] and m.banned_allergens == [] and not m.strict_allergens
+    d = TestClient(app).get("/experience/policy").json()
+    assert d["required_claims"] == [] and d["banned_allergens"] == []
+    from app.orders.mandates import MANDATES
+    assert MANDATES["mandate-hotel-001"].required_claims == ["FREE_FROM_LACTOSE"]  # demo fixture untouched
+
+
+def test_default_orders_stay_actionable_after_restart(monkeypatch):
+    from app.orders import policies
+    c = TestClient(app)
+    m = policies.default("Cafe Uusi")
+    setup(monkeypatch, {"p": (1200, jury("human_approval"))})
+    a = flow.order_from_need(m, NEED)
+    b = flow.order_from_need(m, NEED)
+    setup(monkeypatch, {"p": (1200, jury("substitutes"))}, subs=[offer("alt", 1300)])
+    sub = flow.order_from_need(m, NEED)
+    assert (a.status, sub.status) == ("pending_approval", "substitutes_proposed")
+    _forget_non_fixture_mandates()
+    assert c.post(f"/orders/{a.id}/approve").json()["status"] == "placed"
+    assert c.post(f"/orders/{b.id}/reject", json={"reason": "no"}).json()["status"] == "rejected"
+    setup(monkeypatch, {"alt": (1300, jury("auto_order"))})
+    monkeypatch.setattr("app.orders.service.evaluate", lambda req: jury("auto_order"))
+    r = c.post(f"/orders/{sub.id}/accept-substitute", json={"product_id": "alt"})
+    assert r.status_code == 200 and r.json()["status"] == "placed"
+    _forget_non_fixture_mandates()
+    r = c.post("/orders/from-need", json={"mandate_id": m.id, "need": NEED.model_dump(mode="json")})
+    assert r.status_code == 200
+
+
+def test_duplicate_guard_survives_restart(monkeypatch):
+    from app.experience import router as experience
+    from app.orders import policies
+    setup(monkeypatch, {"p": (1200, jury("auto_order"))})
+    monkeypatch.setattr(experience.order_flow, "order_from_need", flow.order_from_need)
+    c = TestClient(app)
+    body = {"buyer_name": "Cafe Uusi", "product_intent": "milk", "quantity": 10, "unit": "L",
+            "deliver_by": D.isoformat()}
+    assert c.post("/experience/create-draft", json=body).status_code == 200
+    _forget_non_fixture_mandates()
+    r = c.post("/experience/create-draft", json=body)
+    assert r.status_code == 409
+
+
+def test_from_need_client_errors_are_422(monkeypatch):
+    from app.catalog.offers import InvalidOfferRequest
+    c = TestClient(app)
+    body = {"mandate_id": "mandate-hotel-001", "need": {**NEED.model_dump(mode="json"), "quantity": 0}}
+    assert c.post("/orders/from-need", json=body).status_code == 422
+
+    def bad(*a, **k):
+        raise InvalidOfferRequest("nope")
+    monkeypatch.setattr(flow, "get_offers", bad)
+    r = c.post("/orders/from-need", json={**body, "need": NEED.model_dump(mode="json")})
+    assert r.status_code == 422 and r.json()["detail"] == "nope"
+
+
+def test_create_draft_with_hint_without_offers_persists_nothing(monkeypatch):
+    from app.experience import router as experience
+    monkeypatch.setattr(flow, "get_offers", lambda *a: [])
+    monkeypatch.setattr(experience, "explain_no_offer", lambda *a: "because")
+    before = len(store.get_order_store().list())
+    r = TestClient(app).post("/experience/create-draft", json={
+        "product_id": "463038", "product_intent": "milk", "quantity": 10, "unit": "L", "deliver_by": D.isoformat()})
+    assert r.status_code == 422 and r.json()["detail"] == "because"
+    assert len(store.get_order_store().list()) == before and audit.get_store().events(None) == []

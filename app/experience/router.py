@@ -436,12 +436,13 @@ async def create_draft(request: CreateDraftRequest) -> Order:
         raise HTTPException(status_code=422, detail=(
             f"Delivery date {request.deliver_by.isoformat()} is in the past. Today is "
             f"{today.strftime('%A')} {today.isoformat()}: recompute the date from today and try again."))
-    mandate = policies.get(request.policy_id) if request.policy_id else policies.current(request.buyer_name)
+    mandate = policies.resolve(request.policy_id) if request.policy_id else policies.current(request.buyer_name)
     if mandate is None:
         raise HTTPException(status_code=404, detail=f"Unknown policy {request.policy_id!r}.")
     duplicate = next((order for order in get_order_store().list()
-                      if (existing := policies.get(order.mandate_id)) is not None
-                      and existing.buyer_name.strip().casefold() == mandate.buyer_name.strip().casefold()
+                      if ((existing := policies.resolve(order.mandate_id)) is not None
+                          and existing.buyer_name.strip().casefold() == mandate.buyer_name.strip().casefold()
+                          or order.mandate_id == mandate.id)
                       and order.status in {"pending_approval", "placed", "substitutes_proposed"}
                       and order.need.product_intent.strip().casefold() == request.product_intent.strip().casefold()
                       and order.need.quantity == request.quantity
@@ -464,13 +465,13 @@ async def create_draft(request: CreateDraftRequest) -> Order:
         extra_constraints=mandate.required_claims + ([f"Exception: {request.exception_reason}"] if request.exception_reason else []),
     )
     try:
-        order = order_flow.order_from_need(mandate, need, product_hint=request.product_id)
+        order = order_flow.order_from_need(mandate, need, product_hint=request.product_id, strict_hint=True)
     except AimoError as exc:
         raise HTTPException(status_code=502, detail="Valio Aimo API unavailable") from exc
+    except order_flow.NoOffers as exc:
+        raise HTTPException(status_code=422, detail=explain_no_offer(request.product_id, need, request.deliver_by)) from exc
     except InvalidOfferRequest as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    if order.status == "rejected" and not order.lines and request.product_id:
-        raise HTTPException(status_code=422, detail=explain_no_offer(request.product_id, need, request.deliver_by))
     return order
 
 
