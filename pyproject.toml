@@ -17,6 +17,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "cyclonedx-bom>=8.0.1",
+    "elevenlabs>=2.78.0",
     "modal>=1.6.4",
     "pytest",
 ]

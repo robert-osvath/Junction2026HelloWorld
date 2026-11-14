@@ -1,0 +1,87 @@
+{
+  "_note": "Source of truth for all game audio. scripts/gen_game_audio.py renders each entry to <id>.mp3 next to this file (skips existing). Game shows `text` minus [audio tags] as subtitles.",
+  "voices": {
+    "narrator": "JBFqnCBsd6RMkjVDRZzb",
+    "chef": "FGY2WhTYpPnrIDTdsKH5",
+    "boss": "pNInz6obpgDQGcFmaJgB",
+    "north": "SOYHLrjzK2X1ezoPC6cr",
+    "mega": "IKne3meq5aSn9XLyUdCD",
+    "corner": "N2lVS1w4EtoT3dr4eOWO",
+    "harbour": "SAz9YHcvj6GT2YYXdXww",
+    "aimo": "pFZP5JQG7iQjIQuC4Bku",
+    "dj": "TX3LPaxmHKxFdv7VOQHJ",
+    "ad": "nPczCjzI2devNBz1zQrb",
+    "tier0": "XrExE9yKIg1WjnnlVkGX",
+    "spec": "Xb7hH8MSUJpSbSDYk0k2",
+    "delivery": "onwK4e9ZLuTAKqWW03F9",
+    "cost": "cjVigY5qzO86Huf0OWal",
+    "trucker": "CwhRBWXzGAHq8TQ4Fs17"
+  },
+  "speakers": {
+    "narrator": "Narrator", "chef": "Chef Marja (Hotel Kalevala)", "boss": "Boss: Mr. Lindqvist",
+    "north": "Kauppa North clerk", "mega": "MegaDairy sales rep", "corner": "Corner Cash&Carry guy",
+    "harbour": "Harbour Wholesale clerk", "aimo": "Aimo agent", "dj": "Radio Maito DJ", "ad": "Radio ad",
+    "tier0": "Juror: Code gates", "spec": "Juror: Spec", "delivery": "Juror: Delivery", "cost": "Juror: Cost",
+    "trucker": "Aimo Express driver"
+  },
+  "lines": [
+    {"id": "title", "speaker": "narrator", "text": "Helsinki. Friday morning. One hotel. One thousand litres of lactose-free milk. And one buyer who still does it... the old way."},
+
+    {"id": "chef_brief", "speaker": "chef", "fx": "phone", "text": "[panicked] Hi, it's Marja from the kitchen! Listen, the dairy conference checks in Monday, three hundred guests, forty of them lactose intolerant. I need one thousand litres of lactose-free milk by Monday. Budget is two and a half thousand euros. Go, go, go!"},
+    {"id": "chef_call2", "speaker": "chef", "fx": "phone", "text": "[stressed] Any luck? Pastry chef just asked me if oat milk counts. [sighs] It does NOT count. Please hurry!"},
+    {"id": "chef_call3", "speaker": "chef", "fx": "phone", "text": "[shouting] It's almost lunch! Are you driving around Helsinki looking for MILK? In 2026? [laughs nervously] Okay. Okay. I'm fine."},
+    {"id": "boss_budget", "speaker": "boss", "fx": "phone", "text": "Lindqvist here. Finance tells me you got a parking ticket. Reminder: two thousand five hundred euros. Not a cent more. Also, where is the audit trail for all this? [pause] There isn't one, is there."},
+    {"id": "boss_late", "speaker": "boss", "fx": "phone", "text": "It's Lindqvist. The procurement report for the board is due at five. Please tell me you have an order confirmation number. [long pause] I'll take that as a no."},
+
+    {"id": "north_hello", "speaker": "north", "text": "[grumpy] Moi. Lactose-free? Yeah, we have some."},
+    {"id": "north_fail", "speaker": "north", "text": "[deadpan] One thousand litres? Ei oo. We have one hundred twenty. Take it or leave it. Mostly leave it."},
+    {"id": "mega_hello", "speaker": "mega", "text": "[excited] Welcome to MegaDairy, my friend! Premium lactose-free, five thousand litres, ready to roll!"},
+    {"id": "mega_fail", "speaker": "mega", "text": "[cheerfully] That'll be three thousand four hundred euros! [laughs] What do you mean, budget? Budgets are a state of mind!"},
+    {"id": "corner_hello", "speaker": "corner", "text": "[whispers] Psst. Milk. Cheap milk. Ninety-nine cents."},
+    {"id": "corner_fail", "speaker": "corner", "text": "[shrugs] Lactose-free, regular... it's all milk, right? Your guests won't notice. [pause] Probably."},
+    {"id": "harbour_hello", "speaker": "harbour", "text": "[bored] Harbour Wholesale. Yeah, we've got Valio Eila. Ten litre boxes. Lactose free. Good price."},
+    {"id": "harbour_fail", "speaker": "harbour", "text": "[yawns] But the order cut-off was Thursday at three. It's Friday. Come back next week."},
+
+    {"id": "aimo_start", "speaker": "aimo", "text": "New request from Hotel Kalevala. One thousand litres, lactose free, by Monday. On it."},
+    {"id": "aimo_done", "speaker": "aimo", "text": "[calm] Order placed. Fifty cases of Valio Eila, fifteen hundred sixty-five euros fifty. Four jurors approved. Audit chain verified. [pause] Your buyer is still at a red light."},
+
+    {"id": "jury_tier0", "speaker": "tier0", "text": "Code gates: within budget, not sales blocked. Approve."},
+    {"id": "jury_spec", "speaker": "spec", "text": "Spec juror: declares free from lactose. Approve."},
+    {"id": "jury_delivery", "speaker": "delivery", "text": "Delivery juror: available Monday the sixteenth. Stock is estimated, noted. Approve."},
+    {"id": "jury_cost", "speaker": "cost", "text": "Cost juror: one fifty-seven per litre, under the auto-approve limit. Approve."},
+
+    {"id": "dj_intro", "speaker": "dj", "fx": "radio", "text": "[energetic] Goooood morning Helsinki, you're listening to Radio Maito, the only station that's ninety-nine percent dairy! Roads are icy, trams are moody, let's go!"},
+    {"id": "ad_aimo", "speaker": "ad", "fx": "radio", "text": "Still driving to wholesalers? Still calling around for prices? It's twenty twenty-six. [pause] There's an agent for that. Aimo. Order like it's the future."},
+    {"id": "dj_traffic", "speaker": "dj", "fx": "radio", "text": "Traffic update: a tram is blocking the central junction, again, and snow is coming in. Perfect day to drive around buying milk by hand! [laughs]"},
+
+    {"id": "truck_pass", "speaker": "trucker", "text": "[laughs] Coming through! Fifty cases for Hotel Kalevala. Somebody ordered it ages ago!"},
+
+    {"id": "end_fail", "speaker": "narrator", "text": "Same order. One of you is still in traffic."},
+    {"id": "judge_prompt", "speaker": "aimo", "text": "Want to try? Tell me what your kitchen needs, and I'll order it live."}
+  ],
+  "fx": {
+    "phone": {"filter_preset_id": "phone"},
+    "radio": {"filter_preset_id": "old_radio"}
+  },
+  "sfx": [
+    {"id": "sfx_phone_ring", "prompt": "Modern smartphone ringtone, two short cheerful rings", "duration": 3},
+    {"id": "sfx_honk", "prompt": "Big delivery truck air horn, two loud friendly honks", "duration": 2},
+    {"id": "sfx_tram_bell", "prompt": "City tram bell ringing twice, ding ding", "duration": 2},
+    {"id": "sfx_ticket", "prompt": "Comic error buzzer followed by paper ticket printing", "duration": 2},
+    {"id": "sfx_fail", "prompt": "Cartoon sad trombone, wah wah wah", "duration": 3},
+    {"id": "sfx_success", "prompt": "Bright game achievement chime, short triumphant sparkle", "duration": 2},
+    {"id": "sfx_slosh", "prompt": "Milk sloshing and splashing out of a crate", "duration": 1.5},
+    {"id": "sfx_shop_bell", "prompt": "Shop door opening with a small bell jingle", "duration": 1.5},
+    {"id": "sfx_boost", "prompt": "Short car turbo whoosh", "duration": 1},
+    {"id": "sfx_notify", "prompt": "Soft UI notification pop", "duration": 0.8},
+    {"id": "sfx_gavel", "prompt": "Wooden gavel banging twice in a courtroom", "duration": 1.5},
+    {"id": "sfx_engine", "prompt": "Small van engine idling and revving gently, steady", "duration": 6, "loop": true},
+    {"id": "sfx_wind", "prompt": "Cold winter wind with light snowfall, city ambience", "duration": 10, "loop": true}
+  ],
+  "music": [
+    {"id": "music_radio", "prompt": "Upbeat lighthearted Nordic pop instrumental, quirky synths and handclaps, driving vibe, no vocals", "ms": 60000},
+    {"id": "music_jingle", "prompt": "Short catchy radio station jingle with cheerful vocals singing 'Radio Maito'", "ms": 6000},
+    {"id": "music_title", "prompt": "Playful heist-movie style instrumental theme, pizzicato strings and funky bass, comedic tension, no vocals", "ms": 30000},
+    {"id": "music_end", "prompt": "Short comedic orchestral finale sting, triumphant but silly, no vocals", "ms": 10000}
+  ]
+}

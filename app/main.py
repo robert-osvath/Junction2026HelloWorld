@@ -1,9 +1,11 @@
 import os
+from pathlib import Path
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 load_dotenv()  # before app imports read DB_URL
 
@@ -33,3 +35,8 @@ for r in (catalog, jury, orders):
 @app.get("/health")
 def health() -> dict:
     return {"ok": True}
+
+
+GAME_DIR = Path(__file__).resolve().parent.parent / "web" / "game"
+if GAME_DIR.is_dir():  # pitch demo game; absent in the Modal image, so skip instead of crashing at import
+    app.mount("/game", StaticFiles(directory=GAME_DIR, html=True), name="game")
