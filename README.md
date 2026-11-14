@@ -17,7 +17,6 @@ An open ordering interface that Valio Aimo owns and that any buyer's AI agent ca
    Vimo breaks the dishes into ingredients and checks each one against live availability and order cut-offs. It flags what can't arrive in time and proposes **recipe-level substitutes** with adjusted amounts and a cooking note (e.g. *salmon → rainbow trout, shorten cooking by a minute*). A plain SKU swap would only change the product.
 4. *"Order everything."* Every line is ordered and re-checked by the jury, 3 at a time. Held items can be approved by voice or in the popup.
 5. Open **[/approvals](https://vimo-aimo.vercel.app/approvals)** for the human inbox with every juror's verdict, and **[/timeline](https://vimo-aimo.vercel.app/timeline)** for the tamper-evident audit trail.
-6. Ask Vimo *"what is 2 + 2?"*. It refuses: it only does purchasing.
 
 Note: Valio Aimo delivers nothing before Monday 2026-11-16, so pick Monday or later. Earlier dates are correctly reported as unsourceable.
 
