@@ -1473,7 +1473,7 @@ async function gather({need=FX.need, q='lactose-free milk', claims='FREE_FROM_LA
     const shortlist = ids || arr.map(x => x.product_id || x.id).filter(Boolean).slice(0,5);
     if (!shortlist.length) throw new Error('no products found');
     const offers = await post('/offers', {need, product_ids:shortlist, delivery_date:need.deliver_by}); mk('price');
-    const offer = offers[0];
+    const offer = offers[0]; if (!offer) throw new Error('no offers');
     const jury = await post('/jury/evaluate', {mandate:FX.mandate, need, offers}); mk('jury');
     const order = await post('/orders', {mandate_id:FX.mandate.id, need, lines:[offer]}); mk('order');
     const events = await J('/audit?order_id=' + encodeURIComponent(order.id));
