@@ -2,9 +2,10 @@
 import os
 import threading
 from datetime import UTC, datetime
-from urllib.parse import urlparse
 
 import pymysql
+
+from app.db import connect_args, pooled
 
 from contracts import Order
 
@@ -41,14 +42,12 @@ CREATE TABLE IF NOT EXISTS orders (
 
 class MariaDBStore:
     def __init__(self, url: str):
-        u = urlparse(url)
-        self._args = dict(host=u.hostname, port=u.port or 3306, user=u.username, password=u.password or "",
-                          database=u.path.lstrip("/"), autocommit=True, charset="utf8mb4")
+        self._args = connect_args(url)
         with self.conn() as c, c.cursor() as cur:
             cur.execute(SCHEMA)
 
     def conn(self):
-        return pymysql.connect(**self._args)
+        return pooled(self._args)
 
     def save(self, order: Order) -> None:
         with self.conn() as c, c.cursor() as cur:  # upsert; created_at is kept on update

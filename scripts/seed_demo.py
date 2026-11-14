@@ -13,7 +13,7 @@ over = {**offer, "units_needed": 100, "total_eur": round(100 * offer["unit_price
 
 for label, mandate, line in [("happy", "mandate-hotel-001", offer), ("over-budget", "mandate-hotel-tight", offer),
                              ("over-total", "mandate-hotel-001", over)]:
-    r = httpx.post(f"{API}/orders", json={"mandate_id": mandate, "need": need, "lines": [line]})
+    r = httpx.post(f"{API}/orders", json={"mandate_id": mandate, "need": need, "lines": [line]}, timeout=60)
     r.raise_for_status()
     o = r.json()
     print(f"{label}: {o['id']} {o['status']}")

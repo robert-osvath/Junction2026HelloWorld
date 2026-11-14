@@ -128,3 +128,36 @@ def test_mariadb_rehashed_tail_edit_detected():
                     ('{"i": 99}', forged.payload_hash, forged.hash, last.id))
     r = store.verify()
     assert not r.ok and r.broken_at == last.id
+
+
+def test_db_url_parsing_ssl_and_encoded_password():
+    from app.db import connect_args
+    a = connect_args("mysql://app%40x:p%40ss%2Fw@db.example.com:4006/aimo?ssl=true")
+    assert (a["user"], a["password"], a["host"], a["port"], a["database"]) == ("app@x", "p@ss/w", "db.example.com", 4006, "aimo")
+    assert a["ssl"]["ca"]
+    assert "ssl" not in connect_args("mysql://aimo:aimo@127.0.0.1:3306/aimo")
+
+
+def test_db_url_raw_special_chars_and_missing_host():
+    from app.db import connect_args
+    a = connect_args("mysql://u1:p#a?s/s@w:rd@h.example.com:4021/?ssl=true")
+    assert (a["user"], a["password"], a["host"], a["port"], a["database"]) == ("u1", "p#a?s/s@w:rd", "h.example.com", 4021, "")
+    with pytest.raises(ValueError):
+        connect_args("mysql://user:pass@:3306/aimo")
+    with pytest.raises(ValueError):
+        connect_args("DB_URL=mysql://user:pass@h:3306/aimo")
+
+
+@pytest.mark.skipif(not os.environ.get("DB_URL_TEST"), reason="DB_URL_TEST not set (needs docker compose up)")
+def test_mariadb_pooled_connection_survives_server_kill():
+    import pymysql
+    from app.db import connect_args
+    store = MariaDBStore(os.environ["DB_URL_TEST"])
+    store.reset_for_tests()
+    with store.conn() as c, c.cursor() as cur:
+        cur.execute("SELECT CONNECTION_ID()")
+        cid = cur.fetchone()[0]
+    with pymysql.connect(**connect_args(os.environ["DB_URL_TEST"])) as k, k.cursor() as cur:
+        cur.execute(f"KILL {int(cid)}")  # simulate the cloud proxy dropping an idle connection
+    store.append(order_id="o", actor="aimo", action="x", payload={}, human_summary="after kill")
+    assert store.verify().ok

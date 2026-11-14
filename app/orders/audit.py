@@ -5,9 +5,10 @@ import os
 import threading
 import uuid
 from datetime import UTC, datetime
-from urllib.parse import urlparse
 
 import pymysql
+
+from app.db import connect_args, pooled
 
 from contracts import AuditEvent, AuditVerify
 
@@ -90,14 +91,12 @@ COLS = "id, ts, order_id, actor, action, payload, payload_hash, prev_hash, hash,
 
 class MariaDBStore:
     def __init__(self, url: str):
-        u = urlparse(url)
-        self._args = dict(host=u.hostname, port=u.port or 3306, user=u.username, password=u.password or "",
-                          database=u.path.lstrip("/"), autocommit=True, charset="utf8mb4")
+        self._args = connect_args(url)
         with self.conn() as c, c.cursor() as cur:
             cur.execute(SCHEMA)
 
     def conn(self):
-        return pymysql.connect(**self._args)
+        return pooled(self._args)
 
     def append(self, **kw) -> AuditEvent:
         # one named lock serialises appenders; FOR UPDATE gap locks deadlocked under concurrent appends

@@ -33,3 +33,12 @@ Contract changes go in `contracts/models.py` + its fixture, and `pytest` must st
 
 ## Workflow
 Feature branch per change (`<lane>/<ticket>-<slug>` or `<lane>/chore-<slug>`), PR to `main`, adversarial `code-review` before every PR. Details in `CLAUDE.md` → Git workflow.
+
+## Deploy (T15)
+- **API on Modal:** `uv run modal setup` once, then create the secret
+  `uv run modal secret create aimo-api VALIO_API_KEY=... DB_URL='mysql://user:pass@host:port/aimo?ssl=true' CORS_ORIGINS=https://<vercel-app>.vercel.app`
+  and `uv run modal deploy modal_app.py`. Pushes to `main` deploy automatically once the repo secrets
+  `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET` exist (`.github/workflows/deploy.yml`).
+- **Database:** MariaDB Cloud. Use an app user without `DELETE HISTORY`/`DROP` (see `db/migrations/000_init.sql`);
+  tables are created by the app on startup.
+- **UI on Vercel:** import the repo, root directory `web`, env `NEXT_PUBLIC_API_URL=<modal URL>`.
