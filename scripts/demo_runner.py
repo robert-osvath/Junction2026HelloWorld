@@ -14,11 +14,13 @@ from datetime import date
 from typing import Any, Awaitable, Callable, Protocol
 
 import httpx
+from dotenv import load_dotenv
 
 # `python scripts/demo_runner.py` puts scripts/ on sys.path, not the repo root: make `agent` importable
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
+from mcp_server.client import demo_headers  # noqa: E402  (needs the repo root on sys.path)
 
 HAPPY_REQUEST = "1,000 L lactose-free milk by Monday"
 STOCK_OUT_REQUEST = "1,000 L lactose-free milk by Monday; first choice is out of stock"
@@ -79,13 +81,13 @@ async def run_demo(agent: BuyerAgent, approve_order: ApproveOrder, verify_audit:
 
 def _http_callbacks(base_url: str) -> tuple[ApproveOrder, VerifyAudit]:
     async def approve(order_id: str) -> dict[str, Any]:
-        async with httpx.AsyncClient(base_url=base_url, timeout=30.0) as client:
+        async with httpx.AsyncClient(base_url=base_url, timeout=30.0, headers=demo_headers()) as client:
             response = await client.post(f"/orders/{order_id}/approve")
             response.raise_for_status()
             return response.json()
 
     async def verify() -> dict[str, Any]:
-        async with httpx.AsyncClient(base_url=base_url, timeout=30.0) as client:
+        async with httpx.AsyncClient(base_url=base_url, timeout=30.0, headers=demo_headers()) as client:
             response = await client.get("/audit/verify")
             response.raise_for_status()
             return response.json()
@@ -126,6 +128,7 @@ async def main() -> None:
     from agent.buyer import BuyerAgent as MCPBuyerAgent
     from agent.mcp_tools import StdioMCPTools
 
+    load_dotenv()  # same DEMO_PASSPHRASE as the API it spawns (which also reads .env)
     base_url = os.getenv("AIMO_API_URL")
     process = None
     if base_url is None:
@@ -138,7 +141,7 @@ async def main() -> None:
             print(f"{outcome.scenario}: {outcome.order_id} {outcome.status}")
         # T11 spec: the over-budget scenario ends with the audit log shown
         over_budget = next(o for o in outcomes if o.scenario == "over-budget")
-        async with httpx.AsyncClient(base_url=base_url, timeout=30.0) as client:
+        async with httpx.AsyncClient(base_url=base_url, timeout=30.0, headers=demo_headers()) as client:
             response = await client.get("/audit", params={"order_id": over_budget.order_id})
             response.raise_for_status()
         print(f"audit log for {over_budget.order_id}:")

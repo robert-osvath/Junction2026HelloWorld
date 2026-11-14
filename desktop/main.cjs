@@ -35,6 +35,7 @@ async function ensureBackend() {
   if (await backendIsReady()) return;
   backendProcess = spawn("uv", ["run", "uvicorn", "app.main:app", "--port", "8001"], {
     cwd: projectRoot,
+    env: { ...process.env, DEMO_PASSPHRASE: "" }, // local desktop backend: no passphrase gate (it overrides .env)
     stdio: "inherit",
     shell: process.platform === "win32",
   });
@@ -56,7 +57,7 @@ function createWindow() {
     },
   });
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-  window.loadURL(backendUrl);
+  window.loadURL(`${backendUrl}/vimo/`);
 }
 
 app.whenReady().then(async () => {

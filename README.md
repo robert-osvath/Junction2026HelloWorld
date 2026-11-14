@@ -59,8 +59,17 @@ Latency: < 200 ms for cached/pre-warmed queries; a new query pays one Gemini cal
 ```bash
 uv run uvicorn app.main:app --port 8000   # API (CORS origins: CORS_ORIGINS, default http://localhost:3000)
 uv run scripts/seed_demo.py               # creates placed / pending_approval / rejected demo orders
-cd web && cp .env.example .env.local && npm install && npm run dev   # http://localhost:3000
+cd web && cp .env.example .env.local && npm install && npm run dev   # http://localhost:3000/approvals
 ```
+
+## Demo passphrase gate (T16)
+When `DEMO_PASSPHRASE` is set (Modal secret `aimo-api`, your local `.env`), every API call except `/health`,
+`/auth/*` and the static `/game` + `/vimo` pages needs the `aimo_demo` cookie (`POST /auth/unlock {passphrase}`,
+the web `/unlock` page) or the header `X-Demo-Pass: <passphrase>` (MCP client and `scripts/demo_runner.py`
+send it from the env). Unset = gate off (CI, tests). Never commit the passphrase. Sessions last 7 days and
+`/auth/lock` only clears the browser cookie: to revoke all sessions, change `DEMO_PASSPHRASE` or `DEMO_SESSION_SECRET`.
+Web routes: `/` landing · `/vimo` buyer cockpit (`web/public/vimo`, also served by FastAPI at `/vimo`) ·
+`/approvals` inbox · `/unlock` · `/game`. Next proxies the API paths to `NEXT_PUBLIC_API_URL` (`web/next.config.ts`).
 
 ## Lanes
 Each lane owns one router and replaces its mock with real code:
@@ -73,7 +82,7 @@ Feature branch per change (`<lane>/<ticket>-<slug>` or `<lane>/chore-<slug>`), P
 
 ## Deploy (T15)
 - **API on Modal:** `uv run modal setup` once, then create the secret
-  `uv run modal secret create aimo-api VALIO_API_KEY=... DB_URL='mysql://user:pass@host:port/aimo?ssl=true' CORS_ORIGINS=https://<vercel-app>.vercel.app GEMINI_API_KEY=...`
+  `uv run modal secret create aimo-api VALIO_API_KEY=... DB_URL='mysql://user:pass@host:port/aimo?ssl=true' CORS_ORIGINS=https://<vercel-app>.vercel.app GEMINI_API_KEY=... DEMO_PASSPHRASE=... ELEVENLABS_API_KEY=... ELEVENLABS_VOICE_ID=...`
   then `uv run modal run modal_app.py::build_catalog` (data + catalog + Gemini embeddings into the
   `aimo-catalog` volume; incremental) and `uv run modal deploy modal_app.py`. Pushes to `main` deploy automatically once the repo secrets
   `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET` exist (`.github/workflows/deploy.yml`).

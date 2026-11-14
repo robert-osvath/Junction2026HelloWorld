@@ -1,5 +1,3 @@
-export const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-
 export type Evidence = { stock: "verified" | "estimated" | "none"; allergens: "declared" | "missing"; reliability: number | null };
 export type Offer = {
   product_id: string; name: string; sales_unit: string; units_needed: number; unit_price_eur: number;
@@ -17,7 +15,7 @@ export type AuditEvent = { id: string; ts: string; actor: string; action: string
 export type AuditVerify = { ok: boolean; checked: number; broken_at: string | null };
 
 export async function api<T>(path: string, method = "GET", body?: unknown): Promise<T> {
-  const r = await fetch(API + path, {
+  const r = await fetch(path, {
     method, cache: "no-store",
     ...(body === undefined ? {} : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
   });

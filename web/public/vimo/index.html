@@ -4,14 +4,15 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#123b2a" />
-    <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="stylesheet" href="/styles.css" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="stylesheet" href="styles.css" />
     <title>Aimo Purchase Control</title>
   </head>
   <body>
     <div class="app-shell">
       <header class="topbar">
-        <a class="brand" href="#">VIMO <span>BY AIMO</span></a>
+        <a class="brand" href="/">VIMO <span>BY AIMO</span></a>
+        <nav class="sitenav" aria-label="Main"><a href="/vimo/index.html">Order (Vimo)</a><a href="/approvals">Approvals</a><a href="/game/index.html">Pitch</a></nav>
         <div class="live"><i></i> Vimo is monitoring</div>
         <button class="voice-toggle" id="voice-toggle" aria-pressed="true">Voice updates on</button>
         <button class="avatar" aria-label="Buyer profile">HM</button>
@@ -114,6 +115,6 @@
       <p class="dialog-copy" id="suggestion-copy"></p>
       <div class="dialog-actions"><button class="primary" id="acknowledge-suggestion">Got it</button></div>
     </dialog>
-    <script src="/app.js"></script>
+    <script src="app.js"></script>
   </body>
 </html>

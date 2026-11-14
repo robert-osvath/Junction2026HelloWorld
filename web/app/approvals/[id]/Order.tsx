@@ -87,7 +87,7 @@ export default function OrderView({ id }: { id: string }) {
     setBusy(false);
   }
 
-  const crumbs = <p className="crumbs"><Link href="/">Order approvals</Link> / {id}</p>;
+  const crumbs = <p className="crumbs"><Link href="/approvals">Order approvals</Link> / {id}</p>;
   if (!order) return <>{crumbs}{err ? <p className="err">{err}</p> : <p>Loading...</p>}</>;
   const canApprove = order.status === "pending_approval";
   const canReject = canApprove || order.status === "substitutes_proposed";

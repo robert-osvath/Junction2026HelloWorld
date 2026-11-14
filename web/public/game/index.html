@@ -234,6 +234,7 @@ body[data-m=reveal] #cap.has{display:flex}
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
 </head>
 <body data-m="title">
+<a href="/" style="position:fixed;left:8px;bottom:8px;z-index:50;font:12px sans-serif;color:#fff;background:#0a183099;padding:4px 8px;border-radius:12px;text-decoration:none">&larr; back</a>
 <canvas id="gl"></canvas><canvas id="sl"></canvas>
 <div id="flash"></div><div class="bar" id="bT"></div><div class="bar" id="bB"></div>
 
@@ -1458,7 +1459,7 @@ const post = (url, body) => J(url, {method:'POST', headers:{'content-type':'appl
 let live = false;
 function setMode(c, isLive){ c.textContent = isLive ? 'LIVE API' : 'DEMO DATA'; c.classList.toggle('live', isLive); }
 async function detectLive(){
-  try { const r = await fetch('/health'); live = r.ok && (await r.json()).ok === true; } catch { live = false; }
+  try { const r = await fetch('/auth/status'); live = r.ok && (await r.json()).unlocked === true; } catch { live = false; }
   setMode($('mode'), live);
 }
 // Gather data: live endpoints if available, else fixtures (with a short simulated latency per stage). Any live error -> fixtures.

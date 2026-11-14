@@ -7,6 +7,7 @@ import httpx
 import pytest
 
 os.environ["DB_URL"] = ""  # app tests use the in-memory store, never the dev DB from .env
+os.environ["DEMO_PASSPHRASE"] = ""  # gate off unless a test turns it on (local .env may set it)
 
 FIX = Path(__file__).parent / "fixtures"
 
