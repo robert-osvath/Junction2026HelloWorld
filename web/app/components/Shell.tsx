@@ -6,9 +6,10 @@ import { api, type Order, type Status } from "../api";
 import Icon, { type IconName } from "./Icon";
 
 type Nav = { href: string; label: string; icon: IconName; count?: Status };
-export const NAV: Nav[] = [
+const NAV: Nav[] = [
   { href: "/", label: "Overview", icon: "home" },
   { href: "/approvals", label: "Approval inbox", icon: "check", count: "pending_approval" },
+  { href: "/timeline", label: "Audit timeline", icon: "history" },
 ];
 
 // Same-origin with /vimo, so the buyer rules Vimo saved there are readable here.
