@@ -130,6 +130,10 @@ class RejectRequest(BaseModel):
     reason: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
 
 
+class AcceptSubstituteRequest(BaseModel):
+    product_id: str
+
+
 class AuditVerify(BaseModel):
     ok: bool
     checked: int

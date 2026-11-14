@@ -6,7 +6,7 @@ from fastapi import APIRouter
 from app.orders import service
 from app.orders.audit import get_store
 from app.orders.store import get_order_store
-from contracts import AuditEvent, AuditVerify, Order, OrderRequest, RejectRequest
+from contracts import AcceptSubstituteRequest, AuditEvent, AuditVerify, Order, OrderRequest, RejectRequest
 
 router = APIRouter(tags=["orders"])
 
@@ -34,6 +34,11 @@ def approve(order_id: str) -> Order:
 @router.post("/orders/{order_id}/reject")
 def reject(order_id: str, body: RejectRequest | None = None) -> Order:
     return service.reject(order_id, body.reason if body else None)
+
+
+@router.post("/orders/{order_id}/accept-substitute")
+def accept_substitute(order_id: str, body: AcceptSubstituteRequest) -> Order:
+    return service.accept_substitute(order_id, body.product_id)
 
 
 @router.get("/audit")
