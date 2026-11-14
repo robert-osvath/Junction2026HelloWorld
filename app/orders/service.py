@@ -71,9 +71,12 @@ def get(order_id: str) -> Order:
     return o
 
 
-def _decide(order_id: str, allowed: set[str], new: str, verb: str, reason: str | None = None) -> Order:
+def _decide(order_id: str, allowed: set[str], new: str, verb: str, reason: str | None = None,
+            accepting_ok: bool = False) -> Order:
     with _lock:
         o = get(order_id)
+        if order_id in _accepting and not accepting_ok:
+            raise HTTPException(409, "a substitute is being ordered for this order; try again in a moment")
         if o.status not in allowed:
             raise HTTPException(409, f"cannot {verb} an order that is {o.status}; "
                                      f"allowed from: {', '.join(sorted(allowed))}")
@@ -110,7 +113,7 @@ def accept_substitute(order_id: str, product_id: str) -> Order:
     try:
         new = create(OrderRequest(mandate_id=o.mandate_id, need=o.need, lines=[sub]))  # original untouched if this fails
         _decide(order_id, {"substitutes_proposed"}, "rejected", "reject",
-                f"Replaced by substitute {sub.name} in {new.id}")
+                f"Replaced by substitute {sub.name} in {new.id}", accepting_ok=True)
         return new
     finally:
         with _lock:

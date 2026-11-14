@@ -98,6 +98,27 @@ def test_accept_substitute_creates_new_order_and_closes_original(monkeypatch):
     assert c.get("/audit/verify").json()["ok"] is True
 
 
+def test_reject_refused_while_substitute_is_being_ordered(monkeypatch):
+    import app.orders.service as svc
+    monkeypatch.setattr(svc, "evaluate", lambda req: load("jury_result").model_copy(update={"decision": "substitutes"}))
+    o = place().json()
+    svc._accepting.add(o["id"])
+    try:
+        r = c.post(f"/orders/{o['id']}/reject")
+        assert r.status_code == 409 and "substitute is being ordered" in r.text
+    finally:
+        svc._accepting.discard(o["id"])
+    assert c.post(f"/orders/{o['id']}/reject").json()["status"] == "rejected"
+
+
+def test_vimo_mandate_survives_restart():
+    import importlib
+
+    import app.orders.mandates as mandates
+    fresh = importlib.reload(mandates).MANDATES  # as after a restart, before any cockpit draft
+    assert fresh["mandate-vimo-live"].auto_approve_limit_eur == 500.0
+
+
 def test_invalid_transitions_409():
     placed = place().json()["id"]
     rejected = place(units=100).json()["id"]

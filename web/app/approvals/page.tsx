@@ -13,7 +13,7 @@ export default function Page() {
 function Inbox() {
   const router = useRouter();
   const initial = useSearchParams().get("status") as Status | null;  // deep links, e.g. from the cockpit's metric cards
-  const [tab, setTab] = useState<Status>(initial && initial in LABEL ? initial : "pending_approval");
+  const [tab, setTab] = useState<Status>(initial && Object.hasOwn(LABEL, initial) ? initial : "pending_approval");
   const [orders, setOrders] = useState<Order[] | null>(null);
   const [err, setErr] = useState("");
 
