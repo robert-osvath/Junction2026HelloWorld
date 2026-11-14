@@ -1,12 +1,17 @@
 """Offer builder (T4): product ids + need -> priced, availability-checked Offers.
 
 `build_offers` is pure (no I/O); `get_offers` reads the catalog and calls the Aimo client once per API.
+
+Skipped products (unit mismatch, no price/availability, not in catalog, ...) are only logged, not
+returned. Content per sales unit is estimated from the price ratio; T2's static
+content_per_sales_unit could later cross-check that estimate.
 """
 import logging
 import math
 import sqlite3
 from typing import Any, Iterable, Mapping
 
+from app.catalog import store
 from app.catalog.aimo import AimoClient, AvailabilityInfo, PriceInfo
 from contracts import Evidence, Need, Offer, OffersRequest
 
@@ -23,6 +28,8 @@ def roundest_content(catalog_price: float, comparison_price: float) -> float:
     [catalog/(comparison+0.005), catalog/(comparison-0.005)]. Return the number in that interval
     with the fewest significant digits (nearest the raw ratio on ties): Eila 31.31/1.57 = 19.94 -> 20.
     """
+    if not (catalog_price > 0 and comparison_price > 0) or not math.isfinite(catalog_price + comparison_price):
+        raise ValueError(f"prices must be positive and finite: {catalog_price}, {comparison_price}")
     ratio = catalog_price / comparison_price
     if comparison_price <= _HALF_CENT:
         return ratio
@@ -38,6 +45,21 @@ def roundest_content(catalog_price: float, comparison_price: float) -> float:
     return ratio
 
 
+def round_to_lot(n: int, lot: float | None) -> int:
+    """Smallest integer >= n that is a whole multiple of `lot` (lot <= 1: n itself).
+
+    Fractional lots > 1 need larger integer steps: 1.5 -> multiples of 3, 2.5 -> multiples of 5.
+    """
+    if not lot or lot <= 1:
+        return n
+    for k in range(1, 1000):
+        step = lot * k
+        if abs(step - round(step)) < 1e-9:
+            step = round(step)
+            return math.ceil(n / step - 1e-9) * step
+    return math.ceil(n / lot) * math.ceil(lot)
+
+
 def _units_needed(need: Need, row: Mapping[str, Any], price: PriceInfo) -> int | None:
     if need.unit == "pcs":
         if row["sales_unit"] == row["base_unit"]:
@@ -50,15 +72,10 @@ def _units_needed(need: Need, row: Mapping[str, Any], price: PriceInfo) -> int |
     else:
         content = roundest_content(price.catalog_price_eur, price.comparison_price_eur)
         n = math.ceil(need.quantity / content - 1e-9)
-    n = max(n, 1)
-    lot = row["allowed_lot_size"] or 1
-    if lot > 1:
-        lot = math.ceil(lot)
-        n = math.ceil(n / lot) * lot
-    return n
+    return round_to_lot(max(n, 1), row["allowed_lot_size"])
 
 
-def build_offers(need: Need, product_ids: Iterable[str], delivery_date,
+def build_offers(need: Need, product_ids: Iterable[str],
                  catalog_rows: Mapping[str, Mapping[str, Any]],
                  prices: Mapping[str, PriceInfo],
                  availability: Mapping[str, AvailabilityInfo]) -> list[Offer]:
@@ -78,7 +95,8 @@ def build_offers(need: Need, product_ids: Iterable[str], delivery_date,
         if price is None or price.catalog_price_eur is None:
             log.info("skip %s: no price", pid)
             continue
-        if not price.comparison_price_eur or price.comparison_unit not in ("L", "KG"):
+        if price.catalog_price_eur <= 0 or not price.comparison_price_eur or price.comparison_price_eur <= 0 \
+                or price.comparison_unit not in ("L", "KG"):
             log.info("skip %s: no usable comparison price", pid)
             continue
         if need.unit != "pcs" and price.comparison_unit != _COMPARISON_UNIT[need.unit]:
@@ -120,21 +138,12 @@ def build_offers(need: Need, product_ids: Iterable[str], delivery_date,
     return offers
 
 
-def _catalog_rows(conn: sqlite3.Connection, ids: list[str]) -> dict[str, dict[str, Any]]:
-    if not ids:
-        return {}
-    marks = ",".join("?" * len(ids))
-    rows = conn.execute(
-        f"SELECT p.*, u.size_in_base_units FROM products p "
-        f"LEFT JOIN product_units u ON u.product_id = p.id AND u.unit_id = p.sales_unit "
-        f"WHERE p.id IN ({marks})", ids).fetchall()
-    return {r["id"]: dict(r) for r in rows}
-
-
 def get_offers(conn: sqlite3.Connection, client: AimoClient, req: OffersRequest) -> list[Offer]:
+    if not (math.isfinite(req.need.quantity) and req.need.quantity > 0):
+        raise ValueError("quantity must be a positive finite number")
     ids = list(dict.fromkeys(str(p) for p in req.product_ids))
-    rows = _catalog_rows(conn, ids)
+    rows = store.offer_rows(conn, ids)
     known = [p for p in ids if p in rows]
     prices = client.prices(known, req.delivery_date)
     availability = client.availability(known, req.delivery_date)
-    return build_offers(req.need, ids, req.delivery_date, rows, prices, availability)
+    return build_offers(req.need, ids, rows, prices, availability)

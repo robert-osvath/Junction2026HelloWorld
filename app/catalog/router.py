@@ -20,11 +20,15 @@ def search(q: str = "", claims: str = "", exclude_allergens: str = "", category:
 
 @router.post("/offers")
 def offers(req: OffersRequest, client: AimoClient = Depends(get_client)) -> list[Offer]:
-    conn = store.connect()
+    conn = None
     try:
+        conn = store.connect()
         return get_offers(conn, client, req)
     except AimoError as e:
         logging.getLogger(__name__).warning("aimo error: %s", e)
         raise HTTPException(status_code=502, detail="Valio Aimo API unavailable") from e
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()

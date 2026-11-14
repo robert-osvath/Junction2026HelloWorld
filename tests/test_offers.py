@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.catalog.aimo import AimoClient, AimoError, AvailabilityInfo, PriceInfo, get_client
-from app.catalog.offers import build_offers, roundest_content
+from app.catalog.offers import build_offers, roundest_content, round_to_lot
 from app.main import app
 from contracts import Need
 
@@ -32,7 +32,7 @@ def avail(pid="463038", model="Terminal", qty=None):
 
 
 def one(n=None, r=None, p=None, a=None, pid="463038"):
-    return build_offers(n or need(), [pid], D, {pid: r or row(pid)}, {pid: p or price(pid)},
+    return build_offers(n or need(), [pid], {pid: r or row(pid)}, {pid: p or price(pid)},
                         {pid: a or avail(pid)})
 
 
@@ -89,7 +89,7 @@ def test_skips_and_order():
     rows = {"a": row("a"), "b": row("b"), "c": row("c"), "d": row("d")}
     prices = {"a": price("a"), "c": price("c"), "d": price("d")}
     av = {"a": avail("a"), "b": avail("b"), "d": avail("d")}
-    out = build_offers(need(), ["d", "a", "b", "c", "zzz"], D, rows, prices, av)
+    out = build_offers(need(), ["d", "a", "b", "c", "zzz"], rows, prices, av)
     assert [o.product_id for o in out] == ["d", "a"]  # b no price, c no availability, zzz not in catalog
 
 
@@ -124,3 +124,31 @@ def test_endpoint_aimo_error_502():
     finally:
         app.dependency_overrides[get_client] = prev
     assert r.status_code == 502
+
+
+@pytest.mark.parametrize("n,lot,expected", [
+    (5, 0.01, 5), (5, 1, 5), (4, 1.5, 6), (6, 1.5, 6), (7, 1.5, 9), (3, 2.5, 5), (6, 2.5, 10),
+    (7, 6, 12), (1, 6, 6),
+])
+def test_round_to_lot(n, lot, expected):
+    assert round_to_lot(n, lot) == expected
+
+
+def test_roundest_content_rejects_non_positive():
+    for a, b in [(0, 1.0), (1.0, 0), (-1.0, 2.0), (1.0, -2.0)]:
+        with pytest.raises(ValueError):
+            roundest_content(a, b)
+
+
+def test_non_positive_prices_skipped():
+    assert one(p=price(cat=0.0)) == []
+    assert one(p=price(comp=0.0)) == []
+    assert one(p=price(cat=-1.0)) == []
+
+
+@pytest.mark.parametrize("q", ["Infinity", "NaN", "0", "-5"])
+def test_endpoint_bad_quantity_422(q):
+    raw = ('{"need": {"text": "t", "product_intent": "m", "quantity": %s, "unit": "L", '
+           '"deliver_by": "2026-11-16"}, "product_ids": ["463038"], "delivery_date": "2026-11-16"}' % q)
+    r = c.post("/offers", content=raw, headers={"content-type": "application/json"})
+    assert r.status_code == 422
