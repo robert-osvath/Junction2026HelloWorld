@@ -596,10 +596,16 @@ async function connectElevenLive() {
     onModeChange: (event) => {
       const mode = typeof event === "string" ? event : event?.mode;
       if (mode === "speaking") {
+        // Laptop speakers can feed the agent's own voice back into the open
+        // microphone. ElevenLabs then sees a false barge-in and cuts the
+        // response short. Pause input only for the spoken turn; listening is
+        // immediately restored afterwards.
+        Promise.resolve(elevenConversation?.setMicMuted(true)).catch(() => {});
         clearTimeout(thinkingTimer);
-        setVimoState("Vimo is speaking", "You can interrupt at any time.");
+        setVimoState("Vimo is speaking", "Finishing this update, then listening again.");
       }
       if (mode === "listening") {
+        Promise.resolve(elevenConversation?.setMicMuted(false)).catch(() => {});
         hideCaption(2500);
         if ($("#vimo-title").textContent === "Vimo is speaking") setListening();
       }
