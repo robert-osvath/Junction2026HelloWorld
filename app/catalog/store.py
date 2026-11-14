@@ -20,7 +20,7 @@ PRODUCT_COLUMNS = (
     "id", "name_fi", "name_en", "name_sv", "brand", "category", "vendor_name", "sales_unit",
     "base_unit", "allowed_lot_size", "country_of_origin", "temperature_condition",
     "has_allergen_data", "delivery_reliability", "co2_kg_per_kg",
-    "key_ingredients_fi", "key_ingredients_en",
+    "key_ingredients_fi", "key_ingredients_en", "content_per_sales_unit", "content_unit",
 )
 
 SCHEMA = [
@@ -41,7 +41,9 @@ SCHEMA = [
         delivery_reliability  DOUBLE,             -- 0-1 from CSV, NULL if not listed
         co2_kg_per_kg         DOUBLE,             -- category average from CSV, NULL if not listed
         key_ingredients_fi    TEXT,
-        key_ingredients_en    TEXT
+        key_ingredients_en    TEXT,
+        content_per_sales_unit DOUBLE,            -- litres or kg per sales unit, NULL if unknown
+        content_unit          VARCHAR(2)          -- 'L' | 'KG' | NULL
     )""",
     # nutritionalClaim ids, e.g. FREE_FROM_LACTOSE, VEGAN
     """CREATE TABLE IF NOT EXISTS product_claims (
@@ -115,6 +117,10 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys = ON")  # SQLite-only; MariaDB enforces FKs by default
     for stmt in SCHEMA + FTS_SCHEMA:
         conn.execute(stmt)
+    have = {r[1] for r in conn.execute("PRAGMA table_info(products)")}  # SQLite-only
+    for col, typ in (("content_per_sales_unit", "DOUBLE"), ("content_unit", "VARCHAR(2)")):
+        if col not in have:  # catalog.db built before T2: add the column, loader refills it
+            conn.execute(f"ALTER TABLE products ADD COLUMN {col} {typ}")
     # existing catalog.db built before the FTS index existed: fill it
     if conn.execute("SELECT count(*) FROM products_fts").fetchone()[0] == 0 and \
             conn.execute("SELECT count(*) FROM products").fetchone()[0]:

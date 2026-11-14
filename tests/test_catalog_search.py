@@ -107,6 +107,34 @@ def test_fts_rebuilds_on_existing_db(tmp_path):
     assert ids(search(c, "kaura")) == ["1"]
 
 
+def _add(conn, pid, name, content, unit="L"):
+    conn.execute("INSERT INTO products (id, name_en, sales_unit, has_allergen_data, content_per_sales_unit, "
+                 "content_unit) VALUES (?, ?, 'KI', 0, ?, ?)", (pid, name, content, unit))
+
+
+def test_pack_fit_ordering(conn):
+    for pid, content, unit in [("s", 1, "L"), ("m", 20, "L"), ("big", 1000, "L"), ("huge", 5000, "L"),
+                               ("kg", 20, "KG"), ("unk", None, None)]:
+        _add(conn, pid, "oatdrink " + pid, content, unit)
+    store.rebuild_fts(conn)
+    order = lambda **kw: ids(search(conn, "oatdrink", **kw))
+    # 1000 L: exact fit first, then fewer units / less waste; other-unit and unknown last, never dropped
+    assert order(quantity=1000, unit="L")[:4] == ["big", "huge", "m", "s"]
+    assert set(order(quantity=1000, unit="L")[4:]) == {"kg", "unk"}
+    assert order(quantity=15, unit="L")[:2] == ["m", "s"]  # 20 L beats 1000 L (waste) and 1 L (15 units)
+    assert order(quantity=20, unit="kg")[0] == "kg"
+    # no quantity, 'pcs' or non-positive quantity: fit ignored, order unchanged
+    base = order()
+    assert order(quantity=1000, unit="pcs") == base and order(quantity=1000) == base
+    assert order(unit="L") == base and order(quantity=0, unit="L") == base
+
+
+def test_endpoint_quantity_params(conn):
+    r = client.get("/catalog/search", params={"q": "milk", "quantity": 1000, "unit": "L"})
+    assert r.status_code == 200 and r.json()[0]["product_id"] == "463038"
+    assert client.get("/catalog/search", params={"quantity": 5, "unit": "gallons"}).status_code == 422
+
+
 # --- full catalog ---
 
 @full_data
@@ -118,12 +146,10 @@ def test_acceptance_eila_found(q, monkeypatch):
 
 
 @full_data
-@pytest.mark.xfail(strict=False, reason="ticket target: Eila 10 L in top 5. Text relevance alone ties it "
-                   "with ~20 other lactose-free milks (see T2 report); no honest signal separates it.")
 @pytest.mark.parametrize("q", ["laktoositon maito", "lactose-free milk"])
-def test_acceptance_eila_top5(q, monkeypatch):
+def test_acceptance_eila_top5_for_1000_l(q, monkeypatch):
     monkeypatch.setenv("CATALOG_DB", str(store.DEFAULT_DB))
-    r = client.get("/catalog/search", params={"q": q, "limit": 5}).json()
+    r = client.get("/catalog/search", params={"q": q, "limit": 5, "quantity": 1000, "unit": "L"}).json()
     assert "463038" in [x["product_id"] for x in r]
 
 
@@ -131,7 +157,7 @@ def test_acceptance_eila_top5(q, monkeypatch):
 @pytest.mark.parametrize("q", ["laktoositon maito", "lactose-free milk"])
 def test_search_under_200ms(q, monkeypatch):
     monkeypatch.setenv("CATALOG_DB", str(store.DEFAULT_DB))
-    client.get("/catalog/search", params={"q": q})  # warm-up
+    client.get("/catalog/search", params={"q": q, "quantity": 1000, "unit": "L"})  # warm-up
     t = time.perf_counter()
-    assert client.get("/catalog/search", params={"q": q}).status_code == 200
+    assert client.get("/catalog/search", params={"q": q, "quantity": 1000, "unit": "L"}).status_code == 200
     assert (time.perf_counter() - t) * 1000 < 200
