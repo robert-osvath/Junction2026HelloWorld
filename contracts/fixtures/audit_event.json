@@ -1,11 +1,11 @@
 {
   "id": "evt-0001",
-  "ts": "2026-11-14T10:00:00+02:00",
+  "ts": "2026-11-14T08:00:00Z",
   "order_id": "order-0001",
-  "actor": "buyer-agent:hotel-kalevala",
+  "actor": "aimo",
   "action": "order.placed",
-  "payload_hash": "sha256:1b4f0e9851971998e732078544c96b36c3d01cedf7caa332359d6f1d83567014",
+  "payload_hash": "sha256:b683291eb204b167901296c08165cf0457988caede9de39c2f52a37b0201b73b",
   "prev_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-  "hash": "sha256:6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+  "hash": "sha256:8d6b8d5573a42b08fc0e5aa462f1a84c062c2933696c7386b0419d5b68d71755",
   "human_summary": "Auto-ordered 50 x Valio Eila 10 L lactose-free (1,000 L) for 1,565.50 EUR"
 }

@@ -44,7 +44,7 @@ def test_orders_and_audit():
     assert ok(c.get(f"/orders/{oid}"))["id"] == oid
     assert ok(c.post(f"/orders/{oid}/approve"))["status"] == "placed"
     assert ok(c.post(f"/orders/{oid}/reject"))["status"] == "rejected"
-    assert ok(c.get("/audit", params={"order_id": oid}))
+    assert isinstance(ok(c.get("/audit", params={"order_id": oid})), list)
     assert ok(c.get("/audit/verify"))["ok"] is True
 
 

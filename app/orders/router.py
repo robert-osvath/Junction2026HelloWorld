@@ -1,7 +1,8 @@
-"""P4 (T12-T13). Mock: returns fixtures; approve/reject only flip status, nothing is stored."""
+"""P4. Orders are still mocks (T12); audit is real (T13)."""
 from fastapi import APIRouter
 
 from app.mocks import load
+from app.orders.audit import get_store
 from contracts import AuditEvent, AuditVerify, Order, OrderRequest
 
 router = APIRouter(tags=["orders"])
@@ -28,10 +29,10 @@ def reject(order_id: str) -> Order:
 
 
 @router.get("/audit")
-def audit(order_id: str | None = None) -> list[AuditEvent]:
-    return [load("audit_event")]
+def audit(order_id: str | None = None, orderId: str | None = None) -> list[AuditEvent]:  # noqa: N803 (Notion spelling)
+    return get_store().events(order_id if order_id is not None else orderId)
 
 
 @router.get("/audit/verify")
 def verify() -> AuditVerify:
-    return AuditVerify(ok=True, checked=1)
+    return get_store().verify()
