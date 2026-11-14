@@ -47,7 +47,7 @@ class Alternative:
         return (self.result.decision != "auto_order", self.offer.total_eur, -self.mean_confidence)
 
 
-def _candidate_ids(conn, mandate: Mandate, need: Need, product_hint: str | None, limit: int) -> list[str]:
+def candidate_ids(conn, mandate: Mandate, need: Need, product_hint: str | None, limit: int) -> list[str]:
     claims = ",".join(mandate.required_claims)
     banned = ",".join(mandate.banned_allergens)
     ids = [i.product_id for i in search(conn, need.product_intent, claims, banned, "", limit,
@@ -91,7 +91,7 @@ def order_from_need(mandate: Mandate, need: Need, *, product_hint: str | None = 
     every candidate offer sales-blocked / no stock before judging, to exercise the substitute path."""
     conn = store.connect()
     try:
-        ids = _candidate_ids(conn, mandate, need, product_hint, max_candidates)
+        ids = candidate_ids(conn, mandate, need, product_hint, max_candidates)
         offers = get_offers(conn, get_client(), OffersRequest(need=need, product_ids=ids,
                                                               delivery_date=need.deliver_by)) if ids else []
     finally:

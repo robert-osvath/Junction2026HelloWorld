@@ -39,15 +39,27 @@ def test_vimo_uses_its_explicit_conversation_rules() -> None:
     assert prompt["ignore_default_personality"] is True
 
 
-def test_publish_script_only_updates_vimo_turn_settings() -> None:
-    patch = publish_module().turn_patch(live_config())
+def test_publish_script_only_updates_vimo_prompt_tools_and_turn_settings() -> None:
+    config = live_config()
+    patch = publish_module().turn_patch(config)
+    prompt = config["conversation_config"]["agent"]["prompt"]
 
     assert patch == {
         "conversation_config": {
-            "agent": {"prompt": {"ignore_default_personality": True}},
+            "agent": {"prompt": {"ignore_default_personality": True, "prompt": prompt["prompt"]}},
             "turn": {"turn_timeout": -1, "turn_eagerness": "normal", "speculative_turn": False},
         },
     }
+
+
+def test_vimo_can_plan_and_order_a_last_minute_event() -> None:
+    prompt = live_config()["conversation_config"]["agent"]["prompt"]
+    tools = {t["name"]: t for t in prompt["tools"]}
+
+    assert {"plan_event", "order_event_plan"} <= tools.keys()
+    ingredient = tools["plan_event"]["parameters"]["properties"]["recipes"]["items"]["properties"]["ingredients"]["items"]
+    assert ingredient["required"] == ["product_intent", "quantity_per_serving", "unit"]  # matches RecipeIngredient
+    assert "plan_event" in prompt["prompt"] and "order_event_plan" in prompt["prompt"]
 
 
 def test_publish_script_refuses_a_non_live_branch() -> None:
@@ -55,3 +67,17 @@ def test_publish_script_refuses_a_non_live_branch() -> None:
         publish_module().require_fully_live({"current_live_percentage": 1})
 
     publish_module().require_fully_live({"current_live_percentage": 100})
+
+
+def test_publish_plans_tool_updates_by_name_ignoring_platform_defaults() -> None:
+    tools = live_config()["conversation_config"]["agent"]["prompt"]["tools"]
+    by_name = {t["name"]: t for t in tools}
+    live = {
+        "get_backend_state": ("t1", {**by_name["get_backend_state"], "execution_mode": "immediate"}),  # platform default only
+        "create_order_draft": ("t2", {**by_name["create_order_draft"], "description": "older"}),
+    }
+    plan = {tool["name"]: (action, tool_id) for action, tool, tool_id in publish_module().plan_tools(tools, live)}
+
+    assert plan["get_backend_state"] == ("keep", "t1")
+    assert plan["create_order_draft"] == ("update", "t2")
+    assert plan["plan_event"] == ("create", None)

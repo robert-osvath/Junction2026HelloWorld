@@ -342,6 +342,136 @@ async function createCatalogDraft({product_id, product_intent, quantity, unit, d
   return response.json();
 }
 
+// ---------- Last-minute event: recipe plan, then order every line in turn ----------
+let eventPlan = null;  // {lines, summary}; line.result is set once "Order all" has run it
+let eventOrdering = false;
+const EVENT_STATUS = {in_time: ["In time", ""], substitute: ["Recipe substitute", "swap"], unsourceable: ["Can't source in time", "late"]};
+
+async function fetchEventPlan(recipes) {
+  const rules = JSON.parse(localStorage.getItem("aimo-rules") || "{}");
+  const response = await fetch("/planning/event-plan", {
+    method: "POST",
+    headers: {"content-type": "application/json"},
+    body: JSON.stringify({recipes, policy_id: rules.policy_id || null, buyer_name: rules.buyer || null}),
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    const detail = body?.detail;
+    throw new Error(typeof detail === "string" ? detail : Array.isArray(detail) ? `Invalid recipes: ${detail[0]?.msg || "check the ingredients"}` : "The event plan could not be built.");
+  }
+  return body;
+}
+
+function orderLineText(order) {
+  const l = order.lines?.[0];  // the jury may pick a different product than the plan previewed
+  return `Order ${order.id.replace("order-", "").slice(0, 8)}: ${order.need?.text}${l ? ` → ${l.name}, ${eur(l.total_eur)}` : ""}`;
+}
+
+function renderEventPlan() {
+  const lines = eventPlan?.lines || [];
+  $("#event-summary").textContent = [eventPlan?.summary, eventPlan?.orderSummary && `Orders: ${eventPlan.orderSummary}`].filter(Boolean).join(" ");
+  $("#event-lines").replaceChildren(...lines.map((line) => {
+    const row = el("div", "substitute-row");
+    const info = el("div");
+    const need = `${line.quantity} ${line.unit} ${line.product_intent} · ${line.recipe_names.join(", ")} · by ${line.required_by}`;
+    info.append(el("strong", "", need));
+    if (line.offer) {
+      const what = line.status === "substitute" ? `Instead: ${line.order_quantity} ${line.order_unit} ${line.order_intent} → ` : "";
+      info.append(el("span", "", `${what}${line.offer.name} · ${line.offer.units_needed} × ${line.offer.sales_unit} · ${eur(line.offer.total_eur)} · arrives ${line.offer.available_date}`));
+    }
+    if (line.substitution_note) info.append(el("span", "note", line.substitution_note));
+    if (line.status !== "in_time") info.append(el("span", "", line.reason));
+    if (line.result) info.append(el("span", "", line.result.order ? orderLineText(line.result.order) : line.result.error));
+    const [label, cls] = line.result
+      ? (line.result.order ? [STATUS_LABEL[line.result.order.status] || line.result.order.status, line.result.order.status] : ["Not ordered", "late"])
+      : EVENT_STATUS[line.status];
+    const side = el("div");
+    side.append(el("span", `status ${cls}`, label));
+    if (line.result?.order?.status === "pending_approval") {
+      const review = el("button", "secondary", "Review");
+      review.type = "button";
+      review.addEventListener("click", () => {
+        state.approval = line.result.order;
+        renderOrder(line.result.order);
+        $("#event-dialog").close();
+        openDecisionConfirmation(null, `Event order: “${line.result.order.need?.text}”`);
+      });
+      side.append(review);
+    }
+    row.append(info, side);
+    return row;
+  }));
+  const orderable = lines.filter((l) => l.order_intent && !l.result);
+  $("#order-event").disabled = eventOrdering || !orderable.length;
+  $("#order-event").textContent = eventOrdering ? "Ordering…" : orderable.length ? `Order all (${orderable.length})` : "All ordered";
+}
+
+function showEventPlan(plan) {
+  eventPlan = plan;
+  renderEventPlan();
+  if (!$("#event-dialog").open) $("#event-dialog").showModal();
+  addEvent("Event plan", plan.summary);
+}
+
+async function orderEventPlan() {
+  if (!eventPlan) return {ordered: [], message: "There is no event plan yet. Plan the event first."};
+  if (eventOrdering) return {ordered: [], message: "The event orders are already being placed."};
+  eventOrdering = true;
+  if (!$("#event-dialog").open) $("#event-dialog").showModal();
+  const results = [];
+  try {
+    // one at a time: each draft re-runs live pricing and the full jury, and the duplicate guard sees the previous one
+    for (const line of eventPlan.lines.filter((l) => l.order_intent && !l.result)) {
+      setWorking(`Ordering ${line.order_quantity} ${line.order_unit} ${line.order_intent}…`);
+      renderEventPlan();
+      try {
+        const order = await createCatalogDraft({
+          product_id: line.offer?.product_id, product_intent: line.order_intent, quantity: line.order_quantity,
+          unit: line.order_unit, deliver_by: line.required_by,
+          exception_reason: line.status === "substitute" ? `Recipe substitute for ${line.product_intent}: ${line.substitution_note}` : "",
+        });
+        line.result = {order};
+        rememberOrder(order);
+      } catch (error) {
+        line.result = {error: error.message};
+      }
+      results.push({ingredient: line.product_intent, ordered: line.order_intent, ...(line.result.order
+        ? {status: line.result.order.status, total_eur: line.result.order.lines?.[0]?.total_eur ?? null}
+        : {status: "failed", error: line.result.error})});
+    }
+  } finally {
+    eventOrdering = false;
+  }
+  const orders = eventPlan.lines.map((l) => l.result?.order).filter(Boolean);
+  // voice approval acts on state.approval: point it at the first order that still needs the buyer
+  const focus = orders.find((o) => o.status === "pending_approval") || orders.at(-1);
+  if (focus) { state.approval = focus; renderOrder(focus); startBackendDecisionPolling(); }
+  const count = (s) => results.filter((r) => r.status === s).length;
+  const summary = `${count("placed")} placed, ${count("pending_approval")} need approval, ${count("substitutes_proposed")} need a substitute decision, ${count("failed") + count("rejected")} not ordered.`;
+  eventPlan.orderSummary = summary;
+  renderEventPlan();
+  addEvent("Event orders", summary);
+  setListening();
+  return {ordered: results, summary};
+}
+
+function showOrderToast(order) {
+  const toast = $("#order-toast");
+  if (!toast?.showPopover) return;  // Popover API: Chrome/Edge 114+, Safari 17+
+  const line = order.lines?.[0];
+  const pending = order.status === "pending_approval";
+  toast.className = `order-toast${pending ? " pending" : ""}`;
+  toast.replaceChildren(
+    el("strong", "", pending ? "Sent for your approval" : "Order placed"),
+    el("span", "", [line ? `${line.units_needed} × ${line.name} · ${eur(line.total_eur)}` : order.need?.text,
+      pending ? heldReason(order) : order.confirmation_no && `Confirmation ${order.confirmation_no}`].filter(Boolean).join(" · ")),
+  );
+  toast.hidePopover?.();
+  toast.showPopover();  // re-shown so it sits above an open dialog
+  clearTimeout(showOrderToast.timer);
+  showOrderToast.timer = setTimeout(() => toast.hidePopover(), 6000);
+}
+
 const IDLE_HINT = "Say “Vimo” and what you need, e.g. “Vimo, order 1,000 L lactose-free milk by Monday”. Or type below.";
 let thinkingTimer = null;
 
@@ -493,6 +623,7 @@ function showOrder(order, title) {
   state.approval = order;
   renderOrder(order);
   rememberOrder(order);
+  if (order.status === "placed" || order.status === "pending_approval") showOrderToast(order);
   const line = order.lines?.[0];
   addEvent(title, `${order.need?.text || ""}${line ? ` → ${line.name}, ${eur(line.total_eur)}` : ""} · ${STATUS_LABEL[order.status] || order.status}`);
 }
@@ -631,6 +762,26 @@ async function connectElevenLive() {
           return {created: false, message: error.message};
         }
       },
+      plan_event: async ({recipes} = {}) => {
+        if (!Array.isArray(recipes) || !recipes.length) return {planned: false, message: "At least one recipe with ingredients is required."};
+        if (eventOrdering) return {planned: false, message: "The current event is still being ordered; wait for its summary."};
+        setWorking(`Checking ${recipes.length} recipe${recipes.length === 1 ? "" : "s"} against live availability…`);
+        try {
+          const plan = await fetchEventPlan(recipes);
+          showEventPlan(plan);
+          setListening();
+          return {planned: true, summary: plan.summary, lines: plan.lines.map((l) => ({
+            ingredient: `${l.quantity} ${l.unit} ${l.product_intent}`, status: l.status,
+            order: l.order_intent ? `${l.order_quantity} ${l.order_unit} ${l.order_intent}` : null,
+            product: l.offer?.name || null, total_eur: l.offer?.total_eur ?? null, reason: l.reason, substitution_note: l.substitution_note,
+          }))};
+        } catch (error) {
+          addEvent("Could not plan the event", error.message);
+          setListening(error.message);
+          return {planned: false, message: error.message};
+        }
+      },
+      order_event_plan: async () => orderEventPlan(),
       propose_order_decision: async ({decision} = {}) => {
         if (decision !== "approve" && decision !== "reject") {
           return {shown: false, message: "A decision must be approve or reject."};
@@ -1078,6 +1229,8 @@ async function recordBuyerDecision(decision) {
 }
 
 $("#open-rules").addEventListener("click", () => $("#rules-dialog").showModal());
+$("#order-event").addEventListener("click", () => orderEventPlan());
+for (const id of ["#close-event", "#close-event-2"]) $(id).addEventListener("click", () => $("#event-dialog").close());
 $("#ask-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const input = $("#ask-input");
