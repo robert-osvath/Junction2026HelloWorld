@@ -266,26 +266,17 @@ async function searchBackendCatalog(query, requiredClaims = []) {
 
 async function createCatalogDraft({product_id, product_intent, quantity, unit, deliver_by, required_claims = [], exception_reason = ""}) {
   const rules = JSON.parse(localStorage.getItem("aimo-rules") || "{}");
-  const policyClaims = String(rules.claim || "").split(",").map((claim) => claim.trim()).filter(Boolean).map((claim) => {
-    const normalized = claim.toUpperCase().replace(/[ -]+/g, "_");
-    return normalized === "LACTOSE_FREE" ? "FREE_FROM_LACTOSE" : normalized;
-  });
+  if (!rules.policy_id) throw new Error("Set and save buyer policies before creating an order draft.");
   const response = await fetch("/experience/create-draft", {
     method: "POST",
     headers: {"content-type": "application/json"},
     body: JSON.stringify({
-      buyer_name: rules.buyer || "My kitchen",
-      auto_approve_limit: Number(rules.limit || 500),
-      budget: Number(rules.budget || 2000),
+      policy_id: rules.policy_id,
       product_id,
       product_intent,
       quantity: Number(quantity),
       unit,
       deliver_by,
-      required_claims: required_claims.length ? required_claims : policyClaims,
-      banned_allergens: String(rules.allergens || "").split(",").map((value) => value.trim().toUpperCase()).filter(Boolean),
-      strict_allergens: Boolean(rules.strict_allergens),
-      substitutes_allowed: Boolean(rules.substitutes),
       exception_reason: exception_reason || null,
     }),
   });
@@ -369,7 +360,7 @@ let myOrders = [];
 
 function renderMetrics() {
   renderOrderWatch();
-  // live numbers for this cockpit's orders (mandate-vimo-live), never placeholders
+  // live numbers for the saved buyer policy, never placeholders
   const placed = myOrders.filter((o) => o.status === "placed");
   const sum = (o) => (o.lines || []).reduce((t, l) => t + l.total_eur, 0);
   $("#m-orders").textContent = String(myOrders.length);
@@ -465,6 +456,13 @@ async function refreshOrder() {
 }
 
 function agentOrderFacts(order) {
+  const rules = JSON.parse(localStorage.getItem("aimo-rules") || "{}");
+  if (!rules.policy_id) {
+    return {
+      policy_required: true,
+      summary: "A buyer policy has not been saved. Before searching or drafting, ask whether nutrition or dietary requirements apply and whether allergen restrictions apply, then ask the buyer to save those choices in Purchasing rules.",
+    };
+  }
   if (!order) {
     return {order_status: "none", summary: "No order has been drafted in this session yet. Ask what the buyer needs, call search_catalog, then create_order_draft."};
   }
@@ -907,7 +905,8 @@ function handleOnboardingAnswer(transcript) {
 
 function startVimo({announce = true} = {}) {
   if (elevenStarting || elevenConversation) return;  // already connecting or live: a second start means a second voice
-  if (!localStorage.getItem("aimo-rules")) {
+  const saved = JSON.parse(localStorage.getItem("aimo-rules") || "{}");
+  if (!saved.policy_id) {
     $("#rules-dialog").showModal();
     setVimoState("Set your purchasing rules", "Vimo needs your limits and dietary rules before it drafts or approves any order.");
     return;
@@ -944,11 +943,12 @@ function startLegacyVimo(announce, alert) {
 }
 
 async function loadDecision() {
-  // only orders this cockpit created (mandate-vimo-live); other buyers' and the game's orders stay in /approvals
+  // only orders covered by this buyer's saved policy appear in this cockpit
   try {
     const response = await fetch("/orders");
     const orders = response.ok ? await response.json() : [];
-    const mine = orders.filter((order) => order.mandate_id === "mandate-vimo-live")
+    const rules = JSON.parse(localStorage.getItem("aimo-rules") || "{}");
+    const mine = orders.filter((order) => order.mandate_id === rules.policy_id)
       .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
     myOrders = mine;
     renderMetrics();
@@ -991,10 +991,35 @@ $("#ask-form").addEventListener("submit", async (event) => {
   }
 });
 $("#start-vimo").addEventListener("click", startVimo);
-$("#rules-form").addEventListener("submit", (event) => {
+function normalizeClaim(claim) {
+  const value = claim.trim().toUpperCase().replace(/[ -]+/g, "_");
+  return value === "LACTOSE_FREE" ? "FREE_FROM_LACTOSE" : value;
+}
+
+$("#rules-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   if (event.submitter?.value === "cancel") { $("#rules-dialog").close(); return; }  // × and Cancel also submit the form
   const rules = Object.fromEntries(new FormData(event.currentTarget));
+  const requiredClaims = String(rules.claim || "").split(",").map(normalizeClaim).filter(Boolean);
+  const bannedAllergens = String(rules.allergens || "").split(",").map((code) => code.trim().toUpperCase()).filter(Boolean);
+  try {
+    const response = await fetch("/experience/policies", {
+      method: "POST", headers: {"content-type": "application/json"},
+      body: JSON.stringify({
+        buyer_name: rules.buyer, buyer_type: rules.buyer_type,
+        auto_approve_limit: Number(rules.limit), budget: Number(rules.budget),
+        nutrition_choice: rules.nutrition_choice, required_claims: requiredClaims,
+        allergen_choice: rules.allergen_choice, banned_allergens: bannedAllergens,
+        strict_allergens: Boolean(rules.strict_allergens), substitutes_allowed: Boolean(rules.substitutes),
+      }),
+    });
+    const body = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(typeof body?.detail === "string" ? body.detail : "The policy could not be saved.");
+    rules.policy_id = body.policy_id;
+  } catch (error) {
+    setVimoState("Policy needs attention", error.message);
+    return;
+  }
   localStorage.setItem("aimo-rules", JSON.stringify(rules));
   $("#policy-copy").textContent = `${rules.buyer}: orders up to €${rules.limit} can proceed automatically when all dietary and delivery rules are met.`;
   $("#rules-dialog").close();
@@ -1095,7 +1120,7 @@ $("#close-suggestion").addEventListener("click", () => $("#suggestion-dialog").c
 $("#acknowledge-suggestion").addEventListener("click", () => $("#suggestion-dialog").close());
 
 const savedRules = localStorage.getItem("aimo-rules");
-if (savedRules) {
+if (savedRules && JSON.parse(savedRules).policy_id) {
   const rules = JSON.parse(savedRules);
   $("#policy-copy").textContent = `${rules.buyer}: orders up to €${rules.limit} can proceed automatically when all dietary and delivery rules are met.`;
 } else {

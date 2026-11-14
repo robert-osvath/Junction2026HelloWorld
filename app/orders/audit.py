@@ -14,6 +14,7 @@ from contracts import AuditEvent, AuditVerify
 
 GENESIS = "sha256:" + "0" * 64
 ACTORS = {
+    "buyer",
     "buyer-agent",
     "juror:tier0",
     "juror:spec",

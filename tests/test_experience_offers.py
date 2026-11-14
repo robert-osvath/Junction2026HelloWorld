@@ -24,6 +24,20 @@ def need(unit):
     return Need(text="t", product_intent="t", quantity=10, unit=unit, deliver_by=D)
 
 
+def save_policy(client: TestClient, **overrides) -> str:
+    body = {
+        "buyer_name": "My kitchen", "buyer_type": "restaurant",
+        "auto_approve_limit": 300, "budget": 900,
+        "nutrition_choice": "none", "required_claims": [],
+        "allergen_choice": "none", "banned_allergens": [],
+        "strict_allergens": False, "substitutes_allowed": True,
+    }
+    body.update(overrides)
+    response = client.post("/experience/policies", json=body)
+    assert response.status_code == 200, response.text
+    return response.json()["policy_id"]
+
+
 def test_unit_mismatch_says_what_to_do(fake_client):
     msg = experience.explain_no_offer("460000", need("L"), D)  # potato salad, priced per KG
     assert msg.startswith("Unit mismatch") and "kilograms (kg)" in msg and "Order it in kg" in msg
@@ -35,8 +49,9 @@ def test_other_reasons(fake_client):
 
 
 def test_create_draft_returns_the_reason(fake_client):
+    client = TestClient(app)
     r = TestClient(app).post("/experience/create-draft", json={
-        "buyer_name": "Hotel Kalevala", "auto_approve_limit": 2000, "budget": 2500,
+        "policy_id": save_policy(client, buyer_name="Hotel Kalevala", auto_approve_limit=2000, budget=2500),
         "product_id": "460000", "product_intent": "potato salad", "quantity": 10, "unit": "L",
         "deliver_by": D.isoformat(),
     })
@@ -78,14 +93,12 @@ def test_remaining_reasons_mirror_t4(monkeypatch, tmp_path):
 
 
 def test_create_draft_binds_buyer_rules_to_the_mandate(fake_client):
-    from app.orders.mandates import MANDATES
-    TestClient(app).post("/experience/create-draft", json={
-        "buyer_name": "My kitchen", "auto_approve_limit": 300, "budget": 900,
-        "product_id": "460000", "product_intent": "potato salad", "quantity": 10, "unit": "L",
-        "deliver_by": D.isoformat(), "banned_allergens": ["AM", "AW"], "strict_allergens": True,
-        "substitutes_allowed": False, "exception_reason": "event on Monday",
-    })  # 422 (unit mismatch) is fine: the mandate is bound before the offer is built
-    m = MANDATES["mandate-vimo-live"]
+    from app.orders import policies
+    client = TestClient(app)
+    policy_id = save_policy(client, banned_allergens=["AM", "AW"], allergen_choice="required",
+                            strict_allergens=True, substitutes_allowed=False)
+    m = policies.get(policy_id)
+    assert m is not None
     assert (m.buyer_name, m.auto_approve_limit_eur, m.budget_per_order_eur) == ("My kitchen", 300, 900)
     assert m.banned_allergens == ["AM", "AW"] and m.strict_allergens is True and m.substitutes_allowed is False
 
@@ -98,18 +111,34 @@ def test_agent_state_only_reports_cockpit_orders():
 
 
 def test_create_draft_rejects_free_text_allergens(fake_client):
-    r = TestClient(app).post("/experience/create-draft", json={
-        "buyer_name": "My kitchen", "auto_approve_limit": 300, "budget": 900,
-        "product_id": "463038", "product_intent": "milk", "quantity": 10, "unit": "L",
-        "deliver_by": D.isoformat(), "banned_allergens": ["AM", "gluten"],
+    r = TestClient(app).post("/experience/policies", json={
+        "buyer_name": "My kitchen", "buyer_type": "restaurant", "auto_approve_limit": 300, "budget": 900,
+        "nutrition_choice": "none", "required_claims": [], "allergen_choice": "required",
+        "banned_allergens": ["AM", "gluten"], "strict_allergens": False, "substitutes_allowed": True,
     })
     assert r.status_code == 422 and r.json()["detail"].startswith("Unknown allergen code(s): gluten")
 
 
 def test_create_draft_rejects_a_past_delivery_date_with_today(fake_client):
+    client = TestClient(app)
     r = TestClient(app).post("/experience/create-draft", json={
-        "buyer_name": "My kitchen", "auto_approve_limit": 300, "budget": 900,
+        "policy_id": save_policy(client),
         "product_id": "463038", "product_intent": "milk", "quantity": 10, "unit": "L",
         "deliver_by": "2025-11-17",
     })
     assert r.status_code == 422 and "is in the past. Today is" in r.json()["detail"]
+
+
+def test_policy_is_required_and_duplicate_draft_is_blocked(fake_client):
+    client = TestClient(app)
+    missing = client.post("/experience/create-draft", json={
+        "product_id": "463038", "product_intent": "milk", "quantity": 10, "unit": "L", "deliver_by": D.isoformat(),
+    })
+    assert missing.status_code == 422  # policy_id is required by the API contract
+    policy_id = save_policy(client)
+    draft = {"policy_id": policy_id, "product_id": "463038", "product_intent": "milk", "quantity": 10,
+             "unit": "L", "deliver_by": D.isoformat()}
+    first = client.post("/experience/create-draft", json=draft)
+    assert first.status_code == 200, first.text
+    second = client.post("/experience/create-draft", json=draft)
+    assert second.status_code == 409 and "matching order already exists" in second.json()["detail"]
