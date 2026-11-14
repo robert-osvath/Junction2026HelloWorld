@@ -44,6 +44,9 @@ a { color: var(--green-2); }
 .profile small { color: #9cb5ac; font-size: 11px; }
 .avatar { width: 32px; height: 32px; flex: none; border-radius: 50%; border: 2px solid #fff; background: var(--lime); color: var(--green); display: inline-grid; place-items: center; font-size: 11px; font-weight: 800; }
 .avatar.peach { background: var(--peach); }
+.profile .icon-button { color: #c4d4ce; }
+.profile .icon-button:hover { background: #1a4b3e; color: #fff; }
+.content:focus { outline: none; }
 .app-main { grid-column: 2; min-width: 0; }
 .app-header { height: 72px; padding: 0 32px; position: sticky; top: 0; z-index: 10; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid #e4e5df; background: rgba(255, 254, 251, 0.94); backdrop-filter: blur(14px); }
 .breadcrumb { display: flex; align-items: center; gap: 8px; font-size: 14px; }

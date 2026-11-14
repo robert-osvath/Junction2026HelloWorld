@@ -114,7 +114,7 @@ function setVimoState(title, detail, listening = false) {
   $("#vimo-orb").classList.toggle("listening", listening);
   // drives the stage waveform (styles.css): every state change in this file goes through here
   const stage = $("#vimo-stage");
-  if (stage) stage.dataset.state = /speaking/i.test(title) ? "speaking" : /thinking|working/i.test(title) ? "working" : listening ? "listening" : "standby";
+  if (stage) stage.dataset.state = /speaking/i.test(title) ? "speaking" : /thinking|working|checking|connecting/i.test(title) ? "working" : listening ? "listening" : "standby";
   const presence = $("#voice-presence");
   if (presence) {
     presence.textContent = listening ? "● Microphone listening" : "● Microphone standby";
@@ -1245,7 +1245,15 @@ function setMenu(open) {
   $("#sidebar").classList.toggle("open", open);
   $("#menu-backdrop").hidden = !open;
   $("#menu-open").setAttribute("aria-expanded", String(open));
+  (open ? $("#sidebar nav a") : $("#menu-open")).focus();
 }
+
+// Lock (passphrase gate), as in the workspace sidebar: shown only when the gate is on.
+fetch("/auth/status", {cache: "no-store"}).then((r) => r.json()).then((s) => { if (s?.gate) $("#lock").hidden = false; }).catch(() => {});
+$("#lock").addEventListener("click", async () => {
+  await fetch("/auth/lock", {method: "POST"}).catch(() => {});
+  window.location.assign("/unlock");
+});
 $("#menu-open").addEventListener("click", () => setMenu(true));
 $("#menu-close").addEventListener("click", () => setMenu(false));
 $("#menu-backdrop").addEventListener("click", () => setMenu(false));
