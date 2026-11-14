@@ -51,7 +51,7 @@ class Offer(BaseModel):
 
 
 class Verdict(BaseModel):
-    juror: Literal["tier0", "spec", "delivery", "cost", "tier2"]
+    juror: Literal["tier0", "spec", "delivery", "cost", "sustainability", "tier2"]
     decision: Literal["approve", "escalate", "reject"]
     confidence: float = Field(ge=0, le=1)
     reasons: list[str]
@@ -94,6 +94,10 @@ class CatalogItem(BaseModel):
     allergens_contains: list[Allergen]
     allergens_may_contain: list[Allergen]
     allergen_data: bool
+    country_of_origin: str | None = None
+    labels: list[str] = []
+    temperature_condition: int | None = None
+    co2_kg_per_kg: float | None = None
 
 
 class OffersRequest(BaseModel):

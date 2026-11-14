@@ -320,7 +320,14 @@ function setWorking(detail) {
 const STATUS_LABEL = {
   placed: "Placed", pending_approval: "Needs your approval", substitutes_proposed: "Substitutes proposed", rejected: "Rejected",
 };
-const JUROR_LABEL = {tier0: "Policy rules", spec: "Product fit", delivery: "Delivery", cost: "Cost", tier2: "Senior review"};
+const JUROR_LABEL = {
+  tier0: "Policy rules",
+  spec: "Product fit",
+  delivery: "Delivery",
+  cost: "Cost",
+  sustainability: "Sustainability",
+  tier2: "Senior review",
+};
 const eur = (n) => new Intl.NumberFormat("en-GB", {style: "currency", currency: "EUR"}).format(n);
 const heldReason = (order) => order.verdicts?.find((v) => v.decision !== "approve")?.reasons?.[0] || "";
 
