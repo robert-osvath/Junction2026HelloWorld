@@ -14,6 +14,10 @@ from typing import Any, Awaitable, Callable, Protocol
 
 import httpx
 
+# `python scripts/demo_runner.py` puts scripts/ on sys.path, not the repo root: make `agent` importable
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
 HAPPY_REQUEST = "1,000 L lactose-free milk by Monday"
 STOCK_OUT_REQUEST = "1,000 L lactose-free milk by Monday; first choice is out of stock"

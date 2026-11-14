@@ -71,6 +71,17 @@ def parse_need(request: str, *, today: date | None = None) -> Need:
     return Need(text=request, product_intent=intent or "products", quantity=quantity, unit=unit, deliver_by=deliver_by)
 
 
+_STOCK_RANK = {"verified": 0, "estimated": 1, "none": 2}
+
+
+def select_offer(offers: list[Offer]) -> Offer:
+    """Pick the one offer to order: orderable (not sales-blocked) first, then the strongest stock
+    evidence (verified > estimated > none), then the lowest total. Ties keep search order."""
+    if not offers:
+        raise ValueError("no offers to choose from")
+    return min(offers, key=lambda o: (o.sales_block, _STOCK_RANK.get(o.evidence.stock, 3), o.total_eur))
+
+
 class BuyerAgent:
     def __init__(self, tools: MCPTools, profiles: dict[str, BuyerProfile] | None = None) -> None:
         self._tools = tools
@@ -81,8 +92,11 @@ class BuyerAgent:
             raise ValueError(f"Unknown buyer profile: {profile_key}")
         profile = self._profiles[profile_key]
         need = parse_need(request, today=today)
+        mandate = profile.mandate
+        # search with the mandate's hard rules so the shortlist only holds candidates the jury can accept
         products = await self._tools.call(
             "search_products", query=need.product_intent, limit=10, quantity=need.quantity, unit=need.unit,
+            claims=",".join(mandate.required_claims), exclude_allergens=",".join(mandate.banned_allergens),
         )
         product_ids = [p["product_id"] for p in products if p.get("product_id")]
         if not product_ids:
@@ -92,12 +106,15 @@ class BuyerAgent:
         offers = [Offer.model_validate(offer) for offer in raw_offers]
         if not offers:
             return BuyerResult("rejected", "No deliverable offers were returned.", need)
+        # /offers returns ALTERNATIVES for one need (each already covers the full quantity), not order
+        # lines: ordering them all would buy the quantity several times over and blow the budget.
+        chosen = select_offer(offers)
         # The phrase is an explicit demo condition, not a fabricated stock assertion:
         # the server's Tier 0 juror produces the substitute path from this evidence.
         if "out of stock" in request.lower():
-            offers[0] = offers[0].model_copy(update={"sales_block": True,
-                "evidence": offers[0].evidence.model_copy(update={"stock": "none"})})
-        order_request = OrderRequest(mandate_id=profile.mandate.id, need=need, lines=offers)
+            chosen = chosen.model_copy(update={"sales_block": True,
+                "evidence": chosen.evidence.model_copy(update={"stock": "none"})})
+        order_request = OrderRequest(mandate_id=mandate.id, need=need, lines=[chosen])
         raw_order = await self._tools.call("place_order", request=order_request)
         order = Order.model_validate(raw_order)
         status = order.status
