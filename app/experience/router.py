@@ -19,15 +19,15 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from elevenlabs.client import ElevenLabs
 
-from app.mocks import load
 from app.catalog import store as catalog_store
 from app.catalog.aimo import AimoError, get_client
 from app.catalog.offers import InvalidOfferRequest, get_offers
 from app.experience.vimo_agent import VIMO_ELEVENLABS_AGENT_ID
 from app.orders import service as order_service
-from app.orders.mandates import MANDATES
+from app.orders import policies
+from app.orders.audit import get_store as get_audit_store
 from app.orders.store import get_order_store
-from contracts import Need, Offer, OffersRequest, Order, OrderRequest
+from contracts import Mandate, Need, Offer, OffersRequest, Order, OrderRequest
 
 HELSINKI = ZoneInfo("Europe/Helsinki")  # buyers and Aimo's order cut-offs are in Finnish time
 router = APIRouter(prefix="/experience", tags=["buyer experience"])
@@ -115,16 +115,28 @@ class PrepareDecisionRequest(BaseModel):
     budget: float = Field(gt=0, le=1000000)
 
 
-class CreateDraftRequest(PrepareDecisionRequest):
+class BuyerPolicyRequest(PrepareDecisionRequest):
+    buyer_type: Literal["hotel", "hospital", "restaurant"] = "restaurant"
+    nutrition_choice: Literal["none", "required"]
+    required_claims: list[str] = Field(default_factory=list, max_length=20)
+    allergen_choice: Literal["none", "required"]
+    banned_allergens: list[str] = Field(default_factory=list, max_length=30)
+    strict_allergens: bool = False
+    substitutes_allowed: bool = True
+
+
+class BuyerPolicyResponse(BaseModel):
+    policy_id: str
+    summary: str
+
+
+class CreateDraftRequest(BaseModel):
+    policy_id: str = Field(min_length=1, max_length=64)
     product_id: str = Field(min_length=1, max_length=64)
     product_intent: str = Field(min_length=1, max_length=160)
     quantity: float = Field(gt=0, le=1000000)
     unit: Literal["L", "kg", "pcs"]
     deliver_by: date
-    required_claims: list[str] = Field(default_factory=list, max_length=20)
-    banned_allergens: list[str] = Field(default_factory=list, max_length=30)
-    strict_allergens: bool = False
-    substitutes_allowed: bool = True
     exception_reason: str | None = Field(default=None, max_length=500)
 
 
@@ -135,11 +147,52 @@ def demo_brief(request: BriefRequest) -> str:
     return f"{request.buyer_name}, purchasing update: {facts}"
 
 
+def _validate_allergen_codes(codes: list[str]) -> None:
+    unknown = [code for code in codes if not re.fullmatch(r"[A-Z]{2}", code)]
+    if unknown:
+        raise HTTPException(status_code=422, detail=(
+            f"Unknown allergen code(s): {', '.join(unknown)}. Use GS1 codes, e.g. AM (milk), AW (gluten), "
+            "AE (egg), AY (soy), AN (tree nuts), AP (peanuts), AF (fish), AS (sesame)."))
+
+
+@router.post("/policies", response_model=BuyerPolicyResponse)
+async def save_buyer_policy(request: BuyerPolicyRequest) -> BuyerPolicyResponse:
+    """Save the buyer's decision matrix before Vimo can draft an order."""
+    claims = [claim.strip().upper() for claim in request.required_claims if claim.strip()]
+    allergens = [code.strip().upper() for code in request.banned_allergens if code.strip()]
+    if request.nutrition_choice == "required" and not claims:
+        raise HTTPException(status_code=422, detail="Add at least one nutrition or dietary requirement, or choose no nutrition restrictions.")
+    if request.nutrition_choice == "none" and claims:
+        raise HTTPException(status_code=422, detail="Choose nutrition requirements when adding required claims.")
+    if request.allergen_choice == "required" and not allergens:
+        raise HTTPException(status_code=422, detail="Add at least one blocked allergen, or choose no allergen restrictions.")
+    if request.allergen_choice == "none" and (allergens or request.strict_allergens):
+        raise HTTPException(status_code=422, detail="Choose allergen restrictions before adding blocked allergens or strict mode.")
+    _validate_allergen_codes(allergens)
+    mandate = policies.save(Mandate(
+        id="pending-policy", buyer_name=request.buyer_name, buyer_type=request.buyer_type,
+        budget_per_order_eur=request.budget, auto_approve_limit_eur=request.auto_approve_limit,
+        required_claims=claims, banned_allergens=allergens,
+        strict_allergens=request.strict_allergens, substitutes_allowed=request.substitutes_allowed,
+    ))
+    get_audit_store().append(
+        order_id=None, actor="buyer", action="policy.saved",
+        payload={"policy_id": mandate.id, "buyer_name": mandate.buyer_name, "nutrition": request.nutrition_choice,
+                 "allergens": request.allergen_choice, "substitutes_allowed": mandate.substitutes_allowed},
+        human_summary=f"Buyer policy saved for {mandate.buyer_name}: {request.nutrition_choice} nutrition rules and {request.allergen_choice} allergen rules.",
+    )
+    return BuyerPolicyResponse(
+        policy_id=mandate.id,
+        summary=(f"Policy saved: automatic orders up to EUR {mandate.auto_approve_limit_eur:.2f}; "
+                 f"budget EUR {mandate.budget_per_order_eur:.2f}."),
+    )
+
+
 def backend_agent_state(auto_approve_limit: float | None = None) -> AgentStateResponse:
     """Expose an actual current order rather than recreating a demo decision."""
     del auto_approve_limit  # Rules are bound to each order when its draft is created.
-    # only the cockpit's own orders: other buyers' and the game's orders must not leak into Vimo's answers
-    orders = [order for order in get_order_store().list() if order.mandate_id == "mandate-vimo-live"]
+    # Only orders created from an explicit buyer policy belong in the Vimo cockpit.
+    orders = [order for order in get_order_store().list() if order.mandate_id.startswith("policy-")]
     recorded = next((order for order in orders if order.status == "pending_approval"), None) or (orders[0] if orders else None)
     if recorded is None:
         return AgentStateResponse(
@@ -373,30 +426,31 @@ async def create_draft(request: CreateDraftRequest) -> Order:
         raise HTTPException(status_code=422, detail=(
             f"Delivery date {request.deliver_by.isoformat()} is in the past. Today is "
             f"{today.strftime('%A')} {today.isoformat()}: recompute the date from today and try again."))
-    # GS1 allergen codes (AM milk, AW gluten, ...): a free-text "milk" would match nothing and silently ban nothing
-    unknown = [code for code in request.banned_allergens if not re.fullmatch(r"[A-Z]{2}", code)]
-    if unknown:
-        raise HTTPException(status_code=422, detail=(
-            f"Unknown allergen code(s): {', '.join(unknown)}. Use GS1 codes, e.g. AM (milk), AW (gluten), "
-            "AE (egg), AY (soy), AN (tree nuts), AP (peanuts), AF (fish), AS (sesame)."))
-    mandate = load("mandate").model_copy(update={
-        "id": "mandate-vimo-live",
-        "buyer_name": request.buyer_name,
-        "auto_approve_limit_eur": request.auto_approve_limit,
-        "budget_per_order_eur": request.budget,
-        "required_claims": request.required_claims,
-        "banned_allergens": request.banned_allergens,
-        "strict_allergens": request.strict_allergens,
-        "substitutes_allowed": request.substitutes_allowed,
-    })
-    MANDATES[mandate.id] = mandate
+    mandate = policies.get(request.policy_id)
+    if mandate is None:
+        raise HTTPException(status_code=409, detail="Set and save buyer policies before creating an order draft.")
+    duplicate = next((order for order in get_order_store().list()
+                      if (existing := policies.get(order.mandate_id)) is not None
+                      and existing.buyer_name.strip().casefold() == mandate.buyer_name.strip().casefold()
+                      and order.status in {"pending_approval", "placed", "substitutes_proposed"}
+                      and order.need.quantity == request.quantity
+                      and order.need.unit == request.unit
+                      and order.need.deliver_by == request.deliver_by
+                      and any(line.product_id == request.product_id for line in order.lines)), None)
+    if duplicate:
+        get_audit_store().append(
+            order_id=duplicate.id, actor="buyer-agent", action="order.duplicate_blocked",
+            payload={"policy_id": mandate.id, "product_id": request.product_id},
+            human_summary=f"Duplicate order prevented; existing {duplicate.id} is {duplicate.status}.",
+        )
+        raise HTTPException(status_code=409, detail=f"A matching order already exists ({duplicate.id}, {duplicate.status}).")
     need = Need(
         text=f"{request.quantity:g} {request.unit} of {request.product_intent}",
         product_intent=request.product_intent,
         quantity=request.quantity,
         unit=request.unit,
         deliver_by=request.deliver_by,
-        extra_constraints=request.required_claims + ([f"Exception: {request.exception_reason}"] if request.exception_reason else []),
+        extra_constraints=mandate.required_claims + ([f"Exception: {request.exception_reason}"] if request.exception_reason else []),
     )
     offers = build_offers(OffersRequest(
         need=need,
