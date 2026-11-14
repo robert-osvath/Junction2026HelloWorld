@@ -1503,7 +1503,7 @@ async function runAimo(){
   await detectLive();
   const t0 = performance.now(), el = () => (performance.now()-t0)/1000, marks = {};
   let d = await gather({marks});
-  if (d.live && d.order.status !== 'placed'){ console.warn('live order not placed, using fixtures', d.order.status); d = {...d, offer:FX.offer, jury:FX.jury, order:FX.order, events:null, live:false, verified:null}; } Object.assign(R.t, marks);
+  if (d.live && d.order.status !== 'placed'){ console.warn('live order not placed, using fixtures', d.order.status); d = {...d, offer:FX.offer, jury:FX.jury, order:FX.order, events:null, live:false, verified:null}; for (const k in marks) delete marks[k]; } Object.assign(R.t, marks);
   const {chain, ok} = await getChain(d, FX.need); R.t.audit = el();
   Object.assign(R, {d, chain, ok, secs:el(), live:d.live, found:d.live ? (d.found||0) : 85, short:d.live ? 1 : 5, done:true});
   setMode($('mode'), d.live); R.waiters.splice(0).forEach(f => f());
@@ -1675,7 +1675,7 @@ function setBeatText(i){
     `Catalog search · ${R.found} products compared · claim FREE_FROM_LACTOSE`,
     `Live price + availability · shortlist ${R.short} · best: ${esc(shortName(o.name))} €${o.comparison_price_eur.toFixed(2)}/${esc(o.comparison_unit)}`,
     `Verdict: ${esc(String(d.jury.decision).replace(/_/g,' '))} · ${nOk}/${d.jury.verdicts.length} jurors approve`,
-    `${esc(conf)} · ${o.units_needed} × ${esc(shortName(o.name))} · €${tot} · delivery ${fmtDay(o.available_date)}`,
+    `${esc(conf)} · ${esc(o.units_needed)} × ${esc(shortName(o.name))} · €${tot} · delivery ${fmtDay(o.available_date)}`,
     `${R.chain.length} hash-chained events · each hash covers the one before it`][i];
   $('stp').textContent = `STEP ${i+1} / 6 · ${b.n}`; $('capP').textContent = pl; $('capX').innerHTML = dt; $('capS').textContent = '';
   $('dots').innerHTML = BEATS.map((_,k) => `<i class="${k<i?'done':k===i?'on':''}"></i>`).join('');
@@ -1809,7 +1809,7 @@ function parseNeed(t){
   const m = t.match(/(\d[\d,.]*)\s*(litres?|liters?|kilograms?|kilos?|kg|pcs|pieces?|l)\b/i);
   const qty = m ? (parseFloat(m[1].replace(/,/g,'')) || 100) : 100;
   const u = m ? m[2].toLowerCase() : 'pcs', unit = /^l/.test(u) ? 'L' : /^k/.test(u) ? 'kg' : 'pcs';
-  let date = FX.need.deliver_by; const w = t.match(/\b(sun|mon|tue|wed|thu|fri|sat)(day|nesday|urday|rsday|sday)?\b/i);
+  let date = FX.need.deliver_by; const w = t.match(/\b(sun|mon|tue|wed|thu|fri|sat)(day|nesday|urday|rsday|sday|rs|s)?\b/i);
   if (w){ const delta = ((DOW[w[1].toLowerCase()]-5+7)%7)||7; date = new Date(Date.UTC(2026,10,13+delta)).toISOString().slice(0,10); }   // game "today" = Fri 13 Nov 2026
   return {text:t, product_intent:t, quantity:qty, unit, deliver_by:date, extra_constraints:[]};
 }

@@ -38,5 +38,14 @@ def health() -> dict:
 
 
 GAME_DIR = Path(__file__).resolve().parent.parent / "web" / "game"
-if GAME_DIR.is_dir():  # pitch demo game; absent in the Modal image, so skip instead of crashing at import
-    app.mount("/game", StaticFiles(directory=GAME_DIR, html=True), name="game")
+
+
+def mount_game(target: FastAPI, game_dir: Path) -> bool:
+    """Serve the pitch demo game; web/game is absent in the Modal image, so skip instead of crashing."""
+    if not game_dir.is_dir():
+        return False
+    target.mount("/game", StaticFiles(directory=game_dir, html=True), name="game")
+    return True
+
+
+mount_game(app, GAME_DIR)

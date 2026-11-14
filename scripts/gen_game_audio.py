@@ -58,8 +58,11 @@ def main(argv: list[str]) -> None:
             if len(data) < 1024:  # an error body or empty stream must not become a "done" file
                 raise ValueError(f"suspiciously small response ({len(data)} bytes)")
             tmp = AUDIO / f"{jid}.mp3.tmp"
-            tmp.write_bytes(data)
-            tmp.replace(AUDIO / f"{jid}.mp3")  # atomic: a crash never leaves a truncated mp3 that later runs skip
+            try:
+                tmp.write_bytes(data)
+                tmp.replace(AUDIO / f"{jid}.mp3")
+            finally:
+                tmp.unlink(missing_ok=True)  # atomic: a crash never leaves a truncated mp3 that later runs skip
             print(f"  ok   {jid} ({len(data) // 1024} KB)")
         except Exception as e:  # keep going; rerun regenerates only the missing ones
             failed.append(jid)

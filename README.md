@@ -15,6 +15,10 @@ uv run python -m app.catalog.loader   # -> data/catalog.db (SQLite for now; ~1 s
 ```bash
 uv run uvicorn app.main:app --reload    # http://localhost:8000/docs
 uv run pytest -q                         # smoke test over every endpoint
+# Pitch demo game "Milk Run": http://localhost:8000/game/ (LIVE API mode; local only, not shipped to Modal)
+#   or offline: cd web/game && python3 -m http.server  (DEMO DATA mode)
+#   rehearsal params: ?autostart=1  ?reveal=1&beat=N (Space/→ advances)  ?end=1  ?shop=north|mega|corner|harbour
+#   audio: edit web/game/audio/lines.json, then `uv run scripts/gen_game_audio.py [ids]` (needs ELEVENLABS_API_KEY)
 docker compose -f db/docker-compose.yml up -d   # MariaDB 11.4 on :3306 (aimo/aimo, db aimo + aimo_test)
 # DB_URL in .env -> audit log in MariaDB (system-versioned); unset -> in-memory. DB_URL_TEST runs the MariaDB audit test.
 ```
