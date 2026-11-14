@@ -116,7 +116,7 @@ def test_create_draft_rejects_free_text_allergens(fake_client):
         "nutrition_choice": "none", "required_claims": [], "allergen_choice": "required",
         "banned_allergens": ["AM", "gluten"], "strict_allergens": False, "substitutes_allowed": True,
     })
-    assert r.status_code == 422 and r.json()["detail"].startswith("Unknown allergen code(s): gluten")
+    assert r.status_code == 422 and r.json()["detail"].startswith("Unknown allergen code(s): GLUTEN")
 
 
 def test_create_draft_rejects_a_past_delivery_date_with_today(fake_client):
