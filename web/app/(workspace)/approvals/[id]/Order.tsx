@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   api, dt, eur, heldReason, LABEL, total,
   type AuditEvent, type AuditVerify, type Offer, type Order, type RejectRequest,
-} from "../../api";
+} from "../../../api";
 
 const RESULT = { approve: "Approve", escalate: "Escalate", reject: "Reject" } as const;
 
@@ -130,14 +130,14 @@ export default function OrderView({ id }: { id: string }) {
             <label htmlFor="reason">Reason for rejection</label>
             <textarea id="reason" required maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />
             <div className="row">
-              <button type="button" className="btn" disabled={busy} onClick={() => setRejecting(false)}>Cancel</button>
-              <button type="submit" className="btn danger" disabled={busy || !reason.trim()}>Confirm reject</button>
+              <button type="button" className="secondary" disabled={busy} onClick={() => setRejecting(false)}>Cancel</button>
+              <button type="submit" className="danger-button" disabled={busy || !reason.trim()}>Confirm reject</button>
             </div>
           </form>
         ) : (
           <div className="row">
-            {canApprove && <button className="btn primary" disabled={busy} onClick={() => void act("approve")}>Approve</button>}
-            {canReject && <button className="btn" disabled={busy} onClick={() => setRejecting(true)}>Reject</button>}
+            {canApprove && <button className="primary" disabled={busy} onClick={() => void act("approve")}>Approve</button>}
+            {canReject && <button className="secondary" disabled={busy} onClick={() => setRejecting(true)}>Reject</button>}
           </div>
         )}
       </section>
@@ -174,7 +174,7 @@ export default function OrderView({ id }: { id: string }) {
           {order.status === "substitutes_proposed" && (
             <div className="row wrap">
               {order.substitutes.map((s) => (
-                <button key={s.product_id} className="btn primary" disabled={busy} onClick={() => void acceptSubstitute(s.product_id)}>
+                <button key={s.product_id} className="primary" disabled={busy} onClick={() => void acceptSubstitute(s.product_id)}>
                   Order {s.name} ({eur(s.total_eur)})
                 </button>
               ))}
