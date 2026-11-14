@@ -137,7 +137,8 @@ fixtures served via `app.mocks.load(name)`.
 ## Progress (update when a ticket merges)
 T0 contracts + skeleton: on main. T13 audit log: merged (PR #2) — use `app.orders.audit.get_store().append(...)`.
 T12 order service: merged (PR #4) — real `/orders*`; mandates from fixtures (`app/orders/mandates.py`); jury is still the mock with a total-vs-limits rule until T6.
-T15 CI: `.github/workflows/ci.yml` on GitHub-hosted runners: pytest + CycloneDX SBOM artifact, web lint + build. CRACI dropped 2026-11-14 (no runner registered). T14 approval inbox: merged (PR #6), skeleton UI, redesign pending.
+T15 CI: `.github/workflows/ci.yml` on GitHub-hosted runners: pytest + CycloneDX SBOM artifact, web lint + build. CRACI dropped 2026-11-14 (no runner registered). T14 approval inbox: merged (PR #6, redesign #8), live on Vercel.
+T15 deploy: merged (PR #9). Live UI https://junction2026-hello-world.vercel.app, API https://weirdlyviral--aimo-trusted-trade-api.us-east.modal.run (MariaDB Cloud/SkySQL, app user `aimo_app` without DELETE/DROP/DELETE HISTORY). Deploy/secret steps: README → Deploy.
 
 ## Milestones
 Sat 10:00 High tickets work in isolation · Sat 14:00 happy path end to end ·
