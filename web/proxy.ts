@@ -13,6 +13,6 @@ export function proxy(req: NextRequest) {
 // Skip: unlock page, game, Next internals, favicon, proxied API paths, and static files (except .html).
 export const config = {
   matcher: [
-    "/((?!unlock|game|_next|favicon\\.ico|auth|experience|orders|catalog/search|health|offers|jury/evaluate|substitutes|audit)(?!.*\\.(?!html$)[^/]+$).*)",
+    "/((?!unlock|game|_next|favicon\\.ico|auth|experience|orders|catalog/search|health|offers|jury/evaluate|substitutes|audit|planning)(?!.*\\.(?!html$)[^/]+$).*)",
   ],
 };

@@ -38,6 +38,7 @@ def turn_patch(config: dict) -> dict:
             "agent": {"prompt": {
                 "ignore_default_personality": prompt["ignore_default_personality"],
                 "prompt": prompt["prompt"],  # tools are attached by id (tool_ids), see plan_tools
+                "max_tokens": prompt["max_tokens"],  # a plan_event call for a full menu needs a few hundred tokens
             }},
             "turn": {
                 "turn_timeout": turn["turn_timeout"],

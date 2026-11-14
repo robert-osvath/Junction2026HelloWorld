@@ -159,6 +159,21 @@ def _validate_allergen_codes(codes: list[str]) -> None:
             "AE (egg), AY (soy), AN (tree nuts), AP (peanuts), AF (fish), AS (sesame)."))
 
 
+def _validate_claims(claims: list[str]) -> None:
+    """A claim no product carries silently filters out every product, so every order is rejected."""
+    conn = catalog_store.connect()
+    try:
+        known = catalog_store.known_claims(conn)
+    finally:
+        conn.close()
+    unknown = [c for c in claims if known and c not in known]
+    if unknown:
+        examples = ", ".join(c for c in ("FREE_FROM_LACTOSE", "VEGAN", "FREE_FROM_GLUTEN", "ORGANIC") if c in known)
+        raise HTTPException(status_code=422, detail=(
+            f"Unknown required claim(s): {', '.join(unknown)}. No catalog product carries them, so every order "
+            f"would be rejected. Use catalog claims, e.g. {examples}."))
+
+
 @router.post("/policies", response_model=BuyerPolicyResponse)
 def save_buyer_policy(request: BuyerPolicyRequest) -> BuyerPolicyResponse:
     """Save (edit) the buyer's policy. Ordering works without ever calling this: a default policy exists."""
@@ -172,7 +187,10 @@ def save_buyer_policy(request: BuyerPolicyRequest) -> BuyerPolicyResponse:
         if getattr(request, field) is not None:
             update[target] = getattr(request, field)
     if request.required_claims is not None:
-        update["required_claims"] = [c.strip().upper() for c in request.required_claims if c.strip()]
+        claims = [re.sub(r"^(\w+)_FREE$", r"FREE_FROM_\1", re.sub(r"[ -]+", "_", c.strip().upper()))
+                  for c in request.required_claims if c.strip()]  # "gluten-free" -> FREE_FROM_GLUTEN
+        _validate_claims(claims)
+        update["required_claims"] = claims
     if request.banned_allergens is not None:
         allergens = [c.strip().upper() for c in request.banned_allergens if c.strip()]
         _validate_allergen_codes(allergens)

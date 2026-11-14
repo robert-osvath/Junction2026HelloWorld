@@ -5,7 +5,7 @@ const API = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace
 // Browser code (inbox, cockpit /vimo, game) calls the API with same-origin relative paths, so the
 // HttpOnly aimo_demo cookie lives on the web domain. Proxy exactly those paths to the API server-side.
 // "/orders" and "/orders/:path*" are API-only: the inbox pages live under /approvals.
-const API_PATHS = ["/auth/:path*", "/experience/:path*", "/orders", "/orders/:path*", "/catalog/search", "/health", "/offers", "/jury/evaluate", "/substitutes", "/audit", "/audit/verify"];
+const API_PATHS = ["/auth/:path*", "/experience/:path*", "/orders", "/orders/:path*", "/catalog/search", "/health", "/offers", "/jury/evaluate", "/substitutes", "/audit", "/audit/verify", "/planning/:path*"];
 
 const nextConfig: NextConfig = {
   cacheComponents: true,
