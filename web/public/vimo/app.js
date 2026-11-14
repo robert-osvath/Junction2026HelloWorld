@@ -106,43 +106,46 @@ function reportVoiceEvent(kind, detail = "") {
 
 function showCaption(text, hideAfterMs = 0) {
   const el = $("#vimo-caption");
-  if (!el || !text) return;
+  if (!el?.showPopover || !text) return;  // Popover API: Chrome/Edge 114+, Safari 17+
   clearTimeout(captionTimer);
   el.textContent = text;
-  el.hidden = false;
+  if (el.matches(":popover-open")) el.hidePopover();
+  el.showPopover();  // top layer, re-shown per line so it stays above an open <dialog>
   if (hideAfterMs) hideCaption(hideAfterMs);
 }
 
 function hideCaption(afterMs = 1500) {
   clearTimeout(captionTimer);
-  captionTimer = setTimeout(() => { const el = $("#vimo-caption"); if (el) el.hidden = true; }, afterMs);
+  captionTimer = setTimeout(() => { const el = $("#vimo-caption"); if (el?.matches(":popover-open")) el.hidePopover(); }, afterMs);
 }
 
 async function speak(text) {
   if (!state.voice) return;
   // one voice at a time: stop the previous line; the live ElevenLabs agent already speaks for itself
+  const id = ++speakId;  // a newer line supersedes this one (its audio, its caption timer)
   if (speakAudio) speakAudio.pause();
   if ("speechSynthesis" in window) window.speechSynthesis.cancel();
-  if (elevenConversation) { showCaption(text, 4000 + text.length * 40); return; }
-  const id = ++speakId;
+  if (elevenStarting || elevenConversation) { showCaption(text, 4000 + text.length * 40); return; }
   showCaption(text);
-  try { await speakAloud(text); } finally { if (id === speakId) hideCaption(); }  // an interrupted line must not hide the next one
+  try { await speakAloud(text, id); } finally { if (id === speakId) hideCaption(); }
 }
 
-async function speakAloud(text) {
+async function speakAloud(text, id) {
   try {
     const response = await fetch("/experience/speak", {
       method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({text}),
     });
     if (response.ok) {
-      const audio = new Audio(URL.createObjectURL(await response.blob()));
+      const blob = await response.blob();
+      if (id !== speakId) return;  // superseded while fetching: never start a second voice
+      const audio = new Audio(URL.createObjectURL(blob));
       speakAudio = audio;
       audio.play().catch(() => audio.onerror?.());
       await new Promise((resolve) => { audio.onended = resolve; audio.onerror = resolve; audio.onpause = resolve; });
       return;
     }
   } catch (_) { /* Browser speech remains a local demo fallback. */ }
-  if (!("speechSynthesis" in window)) return;
+  if (!("speechSynthesis" in window) || id !== speakId) return;
   const message = new SpeechSynthesisUtterance(text);
   message.rate = 1.04;
   const finished = new Promise((resolve) => { message.onend = resolve; message.onerror = resolve; });
@@ -467,10 +470,12 @@ async function connectElevenLive() {
     },
     onError: () => {
       elevenConversation = null;
+      hideCaption(0);
       setVimoState("Vimo needs attention", "The live conversation disconnected. Select Talk to Vimo to reconnect.");
     },
     onDisconnect: () => {
       elevenConversation = null;
+      hideCaption(0);
       clearInterval(backendPollTimer);
       backendPollTimer = null;
     },
@@ -770,7 +775,11 @@ function startVimo({announce = true} = {}) {
   });
 }
 
+let legacyStarted = false;
+
 function startLegacyVimo(announce, alert) {
+  if (legacyStarted) return;  // a retry after an ElevenLabs failure must not start a second listener/voice
+  legacyStarted = true;
   // Browser recognition is the lowest-latency wake-word path when available;
   // Gemini Live remains the cross-browser continuous-audio path.
   startWakeListener();
