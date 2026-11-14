@@ -32,6 +32,8 @@ button.btn { font: inherit; padding: 6px 16px; border: 1px solid var(--primary);
 button.btn:hover:not(:disabled) { background: var(--surface); }
 button.btn.primary { background: var(--primary); color: #fff; }
 button.btn.primary:hover:not(:disabled) { background: var(--primary-hover); }
+button.btn.danger { background: var(--error-text); border-color: var(--error-text); color: #fff; }
+button.btn.danger:hover:not(:disabled) { background: #8a0f0a; }
 button.btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .panel { border: 1px solid var(--border); padding: 16px; }
 .panel dl { display: grid; grid-template-columns: 160px 1fr; gap: 4px 16px; margin: 0 0 16px; }

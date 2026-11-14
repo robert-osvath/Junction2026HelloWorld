@@ -1,7 +1,7 @@
 from datetime import date, datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 
 Claim = str  # nutritionalClaim / nonAllergen ids, e.g. "FREE_FROM_LACTOSE", "VEGAN"
 Allergen = str  # GS1 codes, e.g. "AM" milk, "AW" gluten
@@ -127,7 +127,7 @@ class OrderRequest(BaseModel):
 
 
 class RejectRequest(BaseModel):
-    reason: str = Field(min_length=1, max_length=500)
+    reason: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
 
 
 class AuditVerify(BaseModel):

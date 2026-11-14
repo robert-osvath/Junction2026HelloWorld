@@ -112,7 +112,7 @@ export default function OrderView({ id }: { id: string }) {
             <textarea id="reason" required maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />
             <div className="row">
               <button type="button" className="btn" disabled={busy} onClick={() => setRejecting(false)}>Cancel</button>
-              <button type="submit" className="btn primary" disabled={busy || !reason.trim()}>Confirm reject</button>
+              <button type="submit" className="btn danger" disabled={busy || !reason.trim()}>Confirm reject</button>
             </div>
           </form>
         ) : (

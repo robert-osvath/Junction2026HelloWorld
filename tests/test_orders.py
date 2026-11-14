@@ -141,5 +141,6 @@ def test_reject_with_reason_audited():
 def test_reject_empty_reason_422_and_created_at():
     o = place("mandate-hotel-tight").json()
     assert o["created_at"]
-    assert c.post(f"/orders/{o['id']}/reject", json={"reason": ""}).status_code == 422
+    for blank in ("", "   "):
+        assert c.post(f"/orders/{o['id']}/reject", json={"reason": blank}).status_code == 422
     assert c.get(f"/orders/{o['id']}").json()["status"] == "pending_approval"
