@@ -9,6 +9,7 @@ content_per_sales_unit could later cross-check that estimate.
 import logging
 import math
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Iterable, Mapping
 
 from app.catalog import store
@@ -148,6 +149,15 @@ def get_offers(conn: sqlite3.Connection, client: AimoClient, req: OffersRequest)
     ids = list(dict.fromkeys(str(p) for p in req.product_ids))
     rows = store.offer_rows(conn, ids)
     known = [p for p in ids if p in rows]
-    prices = client.prices(known, req.delivery_date)
-    availability = client.availability(known, req.delivery_date)
+    if not known:
+        return []
+    # Price and delivery availability are independent supplier endpoints.
+    # Fetching them together removes one complete network round-trip from the
+    # order-draft path while the shared Aimo client retains its per-endpoint
+    # cache and retry behaviour.
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        prices_future = pool.submit(client.prices, known, req.delivery_date)
+        availability_future = pool.submit(client.availability, known, req.delivery_date)
+        prices = prices_future.result()
+        availability = availability_future.result()
     return build_offers(req.need, ids, rows, prices, availability)

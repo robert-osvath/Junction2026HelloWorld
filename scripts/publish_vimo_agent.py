@@ -38,6 +38,7 @@ def turn_patch(config: dict) -> dict:
             "turn": {
                 "turn_timeout": turn["turn_timeout"],
                 "turn_eagerness": turn["turn_eagerness"],
+                "speculative_turn": turn["speculative_turn"],
             },
         },
     }

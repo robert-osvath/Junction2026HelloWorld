@@ -23,12 +23,13 @@ def publish_module():
     return module
 
 
-def test_vimo_waits_for_a_natural_buyer_pause() -> None:
-    """Avoid cutting off a kitchen buyer midway through a spoken request."""
+def test_vimo_does_not_force_a_silence_cutoff() -> None:
+    """Let turn detection finish a buyer's thought instead of a fixed timer."""
     turn = live_config()["conversation_config"]["turn"]
 
-    assert turn["turn_timeout"] == 7
+    assert turn["turn_timeout"] == -1
     assert turn["turn_eagerness"] == "normal"
+    assert turn["speculative_turn"] is False
 
 
 def test_vimo_uses_its_explicit_conversation_rules() -> None:
@@ -44,7 +45,7 @@ def test_publish_script_only_updates_vimo_turn_settings() -> None:
     assert patch == {
         "conversation_config": {
             "agent": {"prompt": {"ignore_default_personality": True}},
-            "turn": {"turn_timeout": 7, "turn_eagerness": "normal"},
+            "turn": {"turn_timeout": -1, "turn_eagerness": "normal", "speculative_turn": False},
         },
     }
 

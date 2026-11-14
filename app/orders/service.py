@@ -8,9 +8,9 @@ from fastapi import HTTPException
 
 from app.jury.router import evaluate, substitutes
 from app.orders.audit import get_store
-from app.orders.mandates import MANDATES
+from app.orders import policies
 from app.orders.store import get_order_store
-from contracts import JuryRequest, Order, OrderRequest, SubstitutesRequest
+from contracts import JuryRequest, Mandate, Need, Offer, Order, OrderRequest, SubstitutesRequest, Verdict
 
 STATUS = {"auto_order": "placed", "human_approval": "pending_approval",
           "substitutes": "substitutes_proposed", "reject": "rejected"}
@@ -23,6 +23,8 @@ def _audit(order_id, actor, action, payload, summary):
 
 
 def _what(o: Order) -> str:
+    if not o.lines:
+        return f"order for {o.need.text}"
     l = o.lines[0]
     more = f" (+{len(o.lines) - 1} more lines)" if len(o.lines) > 1 else ""
     return f"{l.units_needed} x {l.name}{more} for {sum(x.total_eur for x in o.lines):,.2f} EUR"
@@ -33,7 +35,7 @@ def _confirm() -> str:
 
 
 def create(req: OrderRequest) -> Order:
-    mandate = MANDATES.get(req.mandate_id)
+    mandate = policies.resolve(req.mandate_id)
     if mandate is None:
         raise HTTPException(404, f"unknown mandate {req.mandate_id!r}")
     if not req.lines:
@@ -47,20 +49,33 @@ def create(req: OrderRequest) -> Order:
     _audit(oid, "buyer-agent", "order.requested", req.model_dump(mode="json"),
            f"{mandate.buyer_name} requested {req.need.quantity:g} {req.need.unit}: {req.need.text}")
     res = evaluate(JuryRequest(mandate=mandate, need=req.need, offers=req.lines))
-    for v in res.verdicts:
+    audit_verdicts(oid, res.verdicts)
+    status = STATUS[res.decision]
+    subs = substitutes(SubstitutesRequest(mandate=mandate, need=req.need, offer=req.lines[0])) \
+        if status == "substitutes_proposed" else []
+    return finalize(oid, mandate, req.need, req.lines, res.verdicts, status, subs)
+
+
+def audit_verdicts(oid: str, verdicts: list[Verdict]) -> None:
+    for v in verdicts:
         _audit(oid, f"juror:{v.juror}", f"verdict.{v.decision}", v.model_dump(mode="json"),
                f"{v.juror} juror says {v.decision} ({v.confidence:.0%}): {'; '.join(v.reasons)}")
-    status = STATUS[res.decision]
-    o = Order(id=oid, mandate_id=mandate.id, need=req.need, lines=req.lines, verdicts=res.verdicts, status=status,
-              confirmation_no=_confirm() if status == "placed" else None, created_at=datetime.now(UTC))
-    if status == "substitutes_proposed":
-        o.substitutes = substitutes(SubstitutesRequest(mandate=mandate, need=req.need, offer=req.lines[0]))
+
+
+def finalize(oid: str, mandate: Mandate, need: Need, lines: list[Offer], verdicts: list[Verdict],
+             status: str, subs: list[Offer], reason: str | None = None) -> Order:
+    """Persist the decided order and write its closing order.<status> audit event (shared by POST /orders
+    and the need-based flow)."""
+    o = Order(id=oid, mandate_id=mandate.id, need=need, lines=lines, verdicts=verdicts, status=status,
+              confirmation_no=_confirm() if status == "placed" else None, substitutes=subs,
+              created_at=datetime.now(UTC))
     get_order_store().save(o)
+    why = f". {reason}" if reason else ""
     _audit(oid, "aimo", f"order.{status}", {"status": status, "confirmation_no": o.confirmation_no},
            {"placed": f"Auto-ordered {_what(o)}, confirmation {o.confirmation_no}",
-            "pending_approval": f"Held {_what(o)} for human approval",
-            "substitutes_proposed": f"Proposed {len(o.substitutes)} substitutes for {_what(o)}",
-            "rejected": f"Rejected {_what(o)}"}[status])
+            "pending_approval": f"Held {_what(o)} for human approval{why}",
+            "substitutes_proposed": f"Proposed {len(o.substitutes)} substitutes for {_what(o)}{why}",
+            "rejected": f"Rejected {_what(o)}{why}"}[status])
     return o
 
 

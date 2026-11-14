@@ -36,23 +36,22 @@ function Form() {
 
   return (
     <form onSubmit={submit}>
-      <div className="field">
-        <label htmlFor="pass">Passphrase</label>
-        <input id="pass" type="password" autoComplete="current-password" value={pw} onChange={(e) => setPw(e.target.value)} required />
-      </div>
+      <label htmlFor="pass">Passphrase</label>
+      <input id="pass" type="password" autoComplete="current-password" value={pw} onChange={(e) => setPw(e.target.value)} required />
       {err && <p className="err" role="alert">{err}</p>}
-      <button className="btn primary" type="submit" disabled={busy}>Unlock</button>
+      <button className="primary" type="submit" disabled={busy}>Unlock</button>
     </form>
   );
 }
 
 export default function Unlock() {
   return (
-    <section className="hero">
+    <main className="bare"><section className="unlock-card">
+      <span className="brand-mark" aria-hidden="true"><span /><span /><span /></span>
       <p className="eyebrow">Private demo</p>
-      <h1>Enter the <em>passphrase</em></h1>
-      <p className="lede">This demo is gated. Ask the team for the passphrase.</p>
+      <h1>Welcome to Vimo</h1>
+      <p>This demo is gated. Ask the team for the passphrase.</p>
       <Suspense fallback={null}><Form /></Suspense>
-    </section>
+    </section></main>
   );
 }

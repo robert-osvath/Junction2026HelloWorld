@@ -19,6 +19,7 @@ class LocalMCPTools:
         "search_products": server.search_products,
         "get_offers": server.get_offers,
         "place_order": server.place_order,
+        "order_from_need": server.order_from_need,
         "get_order_status": server.get_order_status,
         "list_substitutes": server.list_substitutes,
     }

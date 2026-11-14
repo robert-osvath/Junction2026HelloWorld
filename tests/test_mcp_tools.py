@@ -14,7 +14,8 @@ def run_immediate(coroutine):
 
 
 def test_server_registers_the_ticket_tools():
-    assert set(mcp._tool_manager._tools) == {"search_products", "get_offers", "place_order", "get_order_status", "list_substitutes"}
+    assert set(mcp._tool_manager._tools) == {"search_products", "get_offers", "place_order", "get_order_status", "list_substitutes",
+                                                         "order_from_need"}
 
 
 def test_search_forwards_quantity_aware_query(monkeypatch):

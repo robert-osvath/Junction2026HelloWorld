@@ -1,13 +1,14 @@
 from datetime import date
+from threading import Barrier
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
 
 from app.catalog.aimo import AimoClient, AimoError, AvailabilityInfo, PriceInfo, get_client
-from app.catalog.offers import build_offers, roundest_content, round_to_lot
+from app.catalog.offers import build_offers, get_offers, roundest_content, round_to_lot
 from app.main import app
-from contracts import Need
+from contracts import Need, OffersRequest
 
 D = date(2026, 11, 16)
 
@@ -91,6 +92,24 @@ def test_skips_and_order():
     av = {"a": avail("a"), "b": avail("b"), "d": avail("d")}
     out = build_offers(need(), ["d", "a", "b", "c", "zzz"], rows, prices, av)
     assert [o.product_id for o in out] == ["d", "a"]  # b no price, c no availability, zzz not in catalog
+
+
+def test_get_offers_fetches_price_and_availability_together(monkeypatch):
+    rows = {"a": row("a")}
+    monkeypatch.setattr("app.catalog.offers.store.offer_rows", lambda conn, ids: rows)
+    rendezvous = Barrier(2, timeout=1)
+
+    class Client:
+        def prices(self, ids, delivery_date):
+            rendezvous.wait()  # fails if one supplier request waits for the other
+            return {"a": price("a")}
+
+        def availability(self, ids, delivery_date):
+            rendezvous.wait()
+            return {"a": avail("a")}
+
+    offers = get_offers(None, Client(), OffersRequest(need=need(), product_ids=["a"], delivery_date=D))
+    assert [offer.product_id for offer in offers] == ["a"]
 
 
 def test_missing_comparison_price_skipped():

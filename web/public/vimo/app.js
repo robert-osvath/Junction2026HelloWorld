@@ -25,14 +25,83 @@ let liveAnalyser = null;
 let microphoneMonitor = null;
 let elevenConversation = null;
 let elevenStarting = null;  // in-flight start: auto-start + button click must not open two sessions (two voices)
+let elevenIdleTimer = null;
+let elevenOnStandby = false;
+let elevenMicQueue = Promise.resolve();
+let elevenRecoveryTimer = null;
+let elevenRecoveryAttempts = 0;
 let captionTimer = null;
 let speakAudio = null;
 let speakId = 0;
 let backendPollTimer = null;
+let backendRefreshInFlight = false;
+let lastBackendOrderStatus = null;
 const TURN_SILENCE_MS = 1200;
 const TURN_MAX_MS = 5000;
 const VOICE_DIAGNOSTICS_ENABLED = false;
 const recentVoiceEvents = new Map();
+
+function clearElevenIdleTimer() {
+  clearTimeout(elevenIdleTimer);
+  elevenIdleTimer = null;
+}
+
+function clearElevenRecovery() {
+  clearTimeout(elevenRecoveryTimer);
+  elevenRecoveryTimer = null;
+}
+
+function setElevenMicMuted(muted) {
+  const conversation = elevenConversation;
+  if (!conversation || typeof conversation.setMicMuted !== "function") return Promise.resolve();
+  // The SDK call is asynchronous. Sending mute and unmute at the same time
+  // means their completion order is not guaranteed; a late mute previously
+  // left Vimo unable to hear the buyer after its first reply.
+  elevenMicQueue = elevenMicQueue
+    .catch(() => {})
+    .then(async () => {
+      if (conversation !== elevenConversation) return;
+      await conversation.setMicMuted(muted);
+    })
+    .catch((error) => reportVoiceEvent("eleven_mic_update_failed", error?.message || "Unable to update microphone"));
+  return elevenMicQueue;
+}
+
+function scheduleElevenRecovery() {
+  if (!vimoEnabled || elevenConversation || elevenStarting || elevenRecoveryTimer) return;
+  if (elevenRecoveryAttempts >= 3) {
+    setVimoState("Vimo needs attention", "Live voice could not reconnect. Select Talk to Vimo to try again.");
+    return;
+  }
+  const delay = 500 * (2 ** elevenRecoveryAttempts);
+  elevenRecoveryAttempts += 1;
+  setVimoState("Vimo is reconnecting", "Restoring live voice…", true);
+  elevenRecoveryTimer = setTimeout(() => {
+    elevenRecoveryTimer = null;
+    startElevenLive().catch(scheduleElevenRecovery);
+  }, delay);
+}
+
+function armElevenIdleTimer() {
+  clearElevenIdleTimer();
+  // Electron does not reliably expose the Web Speech wake listener. Parking
+  // there would disconnect the only working microphone path, so keep the
+  // ElevenLabs session live on those clients.
+  if (!hasBrowserSpeechRecognition()) return;
+  elevenIdleTimer = setTimeout(async () => {
+    const conversation = elevenConversation;
+    if (!conversation || liveRequest) return;
+    // Keep the established live session rather than tearing it down. A new
+    // signed URL plus WebRTC handshake made every wake-up feel slow and was a
+    // common source of the one-turn-only failure. The browser wake listener
+    // hears the next request while Vimo's stream is muted.
+    elevenOnStandby = true;
+    await setElevenMicMuted(true);
+    if (conversation !== elevenConversation) return;
+    setVimoState("Vimo is on standby", "Say “Hey Vimo” when you need me. I’ll also surface a real backend decision.");
+    startWakeListener();
+  }, 5000);
+}
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -229,22 +298,33 @@ function beginLiveRequest(initialText = "") {
 
 function collectLiveRequest(transcript) {
   if (!liveRequest) return;
-  const cleaned = transcript.replace(/^\s*(?:hey|hi)?\s*vimo\b[,.!?\s]*/i, "").trim();
+  const cleaned = wakeCommand(transcript) ?? transcript.trim();
   if (cleaned) liveRequest.text = cleaned;
   clearTimeout(liveRequest.pauseTimer);
   if (liveRequest.text) liveRequest.pauseTimer = setTimeout(finishLiveRequest, TURN_SILENCE_MS);
 }
 
 function handleLiveTurn(transcript) {
-  const match = transcript.toLowerCase().match(/\b(?:hey|hi)?\s*vimo\b\s*(.*)/);
-  if (!match) return;
+  const command = wakeCommand(transcript);
+  if (command === null) return;
   reportVoiceEvent("wake_detected");
-  const command = match[1].trim();
   if (!command) {
     beginLiveRequest();
     return;
   }
   beginLiveRequest(command);
+}
+
+function wakeCommand(transcript) {
+  // Speech recognition commonly returns "Vimo", "Hey, Vimo", or "Hi Vimo".
+  // The previous expression accidentally required a space before Vimo, which
+  // made the single-word wake phrase impossible to match.
+  const normalized = String(transcript).toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const match = normalized.match(/\b(?:(?:hey|hi)\s+)?vimo\b\s*(.*)/u);
+  return match ? match[1].trim() : null;
 }
 
 async function searchBackendCatalog(query, requiredClaims = []) {
@@ -266,13 +346,13 @@ async function searchBackendCatalog(query, requiredClaims = []) {
 
 async function createCatalogDraft({product_id, product_intent, quantity, unit, deliver_by, required_claims = [], exception_reason = ""}) {
   const rules = JSON.parse(localStorage.getItem("aimo-rules") || "{}");
-  if (!rules.policy_id) throw new Error("Set and save buyer policies before creating an order draft.");
   const response = await fetch("/experience/create-draft", {
     method: "POST",
     headers: {"content-type": "application/json"},
     body: JSON.stringify({
-      policy_id: rules.policy_id,
-      product_id,
+      policy_id: rules.policy_id || null,  // no saved policy: the backend applies the buyer's default
+      buyer_name: rules.buyer || null,
+      product_id: product_id || null,  // optional hint; the jury chooses the best product
       product_intent,
       quantity: Number(quantity),
       unit,
@@ -457,14 +537,8 @@ async function refreshOrder() {
 
 function agentOrderFacts(order) {
   const rules = JSON.parse(localStorage.getItem("aimo-rules") || "{}");
-  if (!rules.policy_id) {
-    return {
-      policy_required: true,
-      summary: "A buyer policy has not been saved. Before searching or drafting, ask whether nutrition or dietary requirements apply and whether allergen restrictions apply, then ask the buyer to save those choices in Purchasing rules.",
-    };
-  }
   if (!order) {
-    return {order_status: "none", summary: "No order has been drafted in this session yet. Ask what the buyer needs, call search_catalog, then create_order_draft."};
+    return {order_status: "none", summary: "No order has been drafted in this session yet. Ask what the buyer needs (product, quantity, unit, delivery date), then call create_order_draft; the jury chooses the product."};
   }
   const line = order.lines?.[0];
   return {
@@ -480,8 +554,24 @@ function agentOrderFacts(order) {
 function startBackendDecisionPolling() {
   // reflect decisions made elsewhere (e.g. the /approvals page) on the order this page shows
   clearInterval(backendPollTimer);
-  backendPollTimer = setInterval(() => {
-    if (state.approval?.status === "pending_approval") refreshOrder();
+  lastBackendOrderStatus = state.approval?.status || null;
+  backendPollTimer = setInterval(async () => {
+    if (!state.approval?.id || backendRefreshInFlight) return;
+    backendRefreshInFlight = true;
+    try {
+      await refreshOrder();
+      const status = state.approval?.status || null;
+      if (!status || status === lastBackendOrderStatus) return;
+      lastBackendOrderStatus = status;
+      const update = `Backend update: this order is now ${STATUS_LABEL[status] || status}.`;
+      addEvent("Backend update", update);
+      if (status === "pending_approval") openDecisionConfirmation();
+      speak(update);
+    } catch (error) {
+      reportVoiceEvent("backend_refresh_failed", error?.message || "Could not refresh order");
+    } finally {
+      backendRefreshInFlight = false;
+    }
   }, 5000);
 }
 
@@ -522,6 +612,7 @@ function openDecisionConfirmation(decision = null, transcript = "") {
 
 function startElevenLive() {
   if (elevenConversation) return Promise.resolve();
+  clearElevenRecovery();
   elevenStarting ??= connectElevenLive().finally(() => { elevenStarting = null; });
   return elevenStarting;
 }
@@ -590,8 +681,13 @@ async function connectElevenLive() {
       },
     },
     onConnect: () => {
+      clearElevenRecovery();
+      elevenRecoveryAttempts = 0;
+      elevenOnStandby = false;
+      setElevenMicMuted(false);
       setListening();
       startBackendDecisionPolling();
+      armElevenIdleTimer();
     },
     onMessage: (event) => {
       const who = event?.source || event?.role;
@@ -602,28 +698,40 @@ async function connectElevenLive() {
     onModeChange: (event) => {
       const mode = typeof event === "string" ? event : event?.mode;
       if (mode === "speaking") {
+        clearElevenIdleTimer();
+        // Laptop speakers can feed the agent's own voice back into the open
+        // microphone. ElevenLabs then sees a false barge-in and cuts the
+        // response short. Pause input only for the spoken turn; listening is
+        // immediately restored afterwards.
+        setElevenMicMuted(true);
         clearTimeout(thinkingTimer);
-        setVimoState("Vimo is speaking", "You can interrupt at any time.");
+        setVimoState("Vimo is speaking", "Finishing this update, then listening again.");
       }
       if (mode === "listening") {
+        if (!elevenOnStandby) setElevenMicMuted(false);
         hideCaption(2500);
         if ($("#vimo-title").textContent === "Vimo is speaking") setListening();
+        armElevenIdleTimer();
       }
     },
     onError: () => {
+      clearElevenIdleTimer();
+      elevenOnStandby = false;
       try { elevenConversation?.endSession(); } catch (_) { /* already closed */ }
       elevenConversation = null;
       hideCaption(0);
       clearTimeout(thinkingTimer);
-      setVimoState("Vimo needs attention", "The live conversation disconnected. Select Talk to Vimo to reconnect.");
+      scheduleElevenRecovery();
     },
     onDisconnect: () => {
       elevenConversation = null;
+      elevenOnStandby = false;
       hideCaption(0);
       clearTimeout(thinkingTimer);
-      clearInterval(backendPollTimer);
-      backendPollTimer = null;
-      setVimoState("Vimo is offline", "Select Talk to Vimo to reconnect.");
+      clearElevenIdleTimer();
+      // Keep backend polling running: order decisions must still reach the
+      // buyer while live voice is recovering.
+      scheduleElevenRecovery();
     },
   });
   // the agent's model does not know today's date and resolves "by Monday" in its training year
@@ -631,7 +739,10 @@ async function connectElevenLive() {
   const iso = now.toLocaleDateString("en-CA", {timeZone: "Europe/Helsinki"});
   const weekday = now.toLocaleDateString("en-GB", {weekday: "long", timeZone: "Europe/Helsinki"});
   try {
-    elevenConversation.sendContextualUpdate(`Today is ${weekday} ${iso} (Helsinki). Resolve relative dates such as "Monday" or "tomorrow" from today; deliver_by must be today or later, in YYYY-MM-DD.`);
+    elevenConversation.sendContextualUpdate(
+      `Today is ${weekday} ${iso} (Helsinki). Resolve relative dates such as "Monday" or "tomorrow" from today; deliver_by must be today or later, in YYYY-MM-DD. ` +
+      "Conversation protocol: be silent until the buyer addresses Vimo or has just asked a follow-up. Never ask whether they are still there, never fill silence, and finish each answer cleanly."
+    );
   } catch (error) { console.warn("Could not send today's date to Vimo", error); }  // the backend also rejects past dates
 }
 
@@ -730,6 +841,27 @@ function hasBrowserSpeechRecognition() {
   return Boolean(window.SpeechRecognition || window.webkitSpeechRecognition);
 }
 
+async function sendElevenTurn(text) {
+  const request = text.trim();
+  if (!request) return;
+  clearElevenIdleTimer();
+  elevenOnStandby = false;
+  stopWakeListener();
+  setThinking(request);
+  try {
+    await startElevenLive();
+    if (!elevenConversation) throw new Error("Live Vimo did not connect");
+    await setElevenMicMuted(false);
+    // This is intentionally a direct user turn. Re-routing a completed wake
+    // transcript through Gemini and local TTS added an unnecessary second
+    // model request and made normal back-and-forth feel delayed.
+    elevenConversation.sendUserMessage(/\bvimo\b/i.test(request) ? request : `Vimo, ${request}`);
+  } catch (_) {
+    // Gemini remains a functional fallback when the live voice service is unavailable.
+    await processVimoCommand(request);
+  }
+}
+
 function stopWakeListener() {
   if (wakeRecognition) {
     wakeRecognition.onend = null;
@@ -740,7 +872,18 @@ function stopWakeListener() {
 
 function startWakeListener() {
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!vimoEnabled || !Recognition || wakeRecognition) return;
+  if (!vimoEnabled || wakeRecognition) return;
+  if (!Recognition) {
+    // Browser wake recognition is optional. Electron can still have a smooth
+    // always-listening conversation through ElevenLabs instead of appearing
+    // asleep after the idle timeout.
+    if (!elevenConversation && !elevenStarting) {
+      startElevenLive().catch(() => {
+        setVimoState("Vimo needs voice access", "Live voice could not reconnect. Check microphone permission, then select Talk to Vimo.");
+      });
+    }
+    return;
+  }
   const recognition = new Recognition();
   wakeRecognition = recognition;
   recognition.lang = "en-US";
@@ -757,18 +900,14 @@ function startWakeListener() {
   recognition.onresult = (event) => {
     for (let index = event.resultIndex; index < event.results.length; index += 1) {
       const heard = event.results[index][0].transcript;
-      const match = heard.toLowerCase().match(/\b(?:hey|hi)?\s*vimo\b\s*(.*)/);
-      if (!match) continue;
+      const command = wakeCommand(heard);
+      if (command === null) continue;
       stopWakeListener();
       reportVoiceEvent("browser_wake_detected");
-      const command = match[1].trim();
-      if (command) beginLiveRequest(command);
+      if (command) sendElevenTurn(command);
       else {
-        setVimoState("Vimo is listening", "I’m listening. Tell me what your kitchen needs.", true);
-        speak("I’m listening. What does your kitchen need?").then(() => {
-          beginLiveRequest();
-          listenToVimo(collectLiveRequest);
-        });
+        setVimoState("Vimo is listening", "Tell me what your kitchen needs.", true);
+        listenToVimo(sendElevenTurn);
       }
       return;
     }
@@ -905,12 +1044,6 @@ function handleOnboardingAnswer(transcript) {
 
 function startVimo({announce = true} = {}) {
   if (elevenStarting || elevenConversation) return;  // already connecting or live: a second start means a second voice
-  const saved = JSON.parse(localStorage.getItem("aimo-rules") || "{}");
-  if (!saved.policy_id) {
-    $("#rules-dialog").showModal();
-    setVimoState("Set your purchasing rules", "Vimo needs your limits and dietary rules before it drafts or approves any order.");
-    return;
-  }
   vimoEnabled = true;
   const alert = "Vimo is active. Tell me what your kitchen needs, or ask what needs attention.";
   setVimoState("Vimo is active", "Say “Hey Vimo” for an update, a question, or an approval decision.");
@@ -943,12 +1076,13 @@ function startLegacyVimo(announce, alert) {
 }
 
 async function loadDecision() {
-  // only orders covered by this buyer's saved policy appear in this cockpit
+  // only orders covered by this buyer's policy (saved or default) appear in this cockpit
   try {
     const response = await fetch("/orders");
     const orders = response.ok ? await response.json() : [];
     const rules = JSON.parse(localStorage.getItem("aimo-rules") || "{}");
-    const mine = orders.filter((order) => order.mandate_id === rules.policy_id)
+    const mine = orders.filter((order) => rules.policy_id ? order.mandate_id === rules.policy_id
+        : order.mandate_id.startsWith("default-") || order.mandate_id === "mandate-vimo-live")
       .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
     myOrders = mine;
     renderMetrics();
@@ -980,15 +1114,7 @@ $("#ask-form").addEventListener("submit", async (event) => {
   const text = input.value.trim();
   if (!text) return;
   input.value = "";
-  try { await startElevenLive(); } catch (_) { /* falls back below */ }
-  if (elevenConversation) {
-    // the agent only answers requests addressed to Vimo
-    elevenConversation.sendUserMessage(/\bvimo\b/i.test(text) ? text : `Vimo, ${text}`);
-    setThinking(text);
-  } else {
-    // the legacy chat path cannot draft orders: say so instead of pretending
-    setVimoState("Vimo is offline", "The live Vimo service is unavailable, so typed orders cannot be drafted right now. Try again in a moment.");
-  }
+  await sendElevenTurn(text);
 });
 $("#start-vimo").addEventListener("click", startVimo);
 function normalizeClaim(claim) {
@@ -1008,8 +1134,7 @@ $("#rules-form").addEventListener("submit", async (event) => {
       body: JSON.stringify({
         buyer_name: rules.buyer, buyer_type: rules.buyer_type,
         auto_approve_limit: Number(rules.limit), budget: Number(rules.budget),
-        nutrition_choice: rules.nutrition_choice, required_claims: requiredClaims,
-        allergen_choice: rules.allergen_choice, banned_allergens: bannedAllergens,
+        required_claims: requiredClaims, banned_allergens: bannedAllergens,
         strict_allergens: Boolean(rules.strict_allergens), substitutes_allowed: Boolean(rules.substitutes),
       }),
     });
@@ -1120,11 +1245,11 @@ $("#close-suggestion").addEventListener("click", () => $("#suggestion-dialog").c
 $("#acknowledge-suggestion").addEventListener("click", () => $("#suggestion-dialog").close());
 
 const savedRules = localStorage.getItem("aimo-rules");
-if (savedRules && JSON.parse(savedRules).policy_id) {
+if (savedRules && JSON.parse(savedRules).buyer) {
   const rules = JSON.parse(savedRules);
   $("#policy-copy").textContent = `${rules.buyer}: orders up to €${rules.limit} can proceed automatically when all dietary and delivery rules are met.`;
 } else {
-  setVimoState("Vimo is ready when you are", "Select Talk to Vimo once, then answer four quick questions by voice.");
+  setVimoState("Vimo is ready when you are", "Select Talk to Vimo and say what you need. Default purchasing rules apply until you edit them.");
 }
 renderJury();
 renderTimeline();
