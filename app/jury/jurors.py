@@ -48,9 +48,10 @@ MODEL_PRICING_PER_1M: dict[str, tuple[float, float]] = {
     "claude-sonnet-4-5": (3.00, 15.00),
 }
 
+# gemma-4-26b-a4b-it left the live panel: its 16K tokens/min quota ran over, so every call waited out
+# the 5 s timeout before falling back (+~5 s per order). It stays available to the T8 benchmark.
 TIER2_SMALL_LLM_PANEL: tuple[str, ...] = (
     "gemini-3.5-flash-lite",
-    "gemma-4-26b-a4b-it",
 )
 
 
@@ -531,7 +532,7 @@ def _run_tier2_small_llm_panel(
     now: datetime | None = None,
     live_api: bool = False,
 ) -> list[Verdict]:
-    """Tier 2 Fallback Jury: polls multiple distinct small LLMs (e.g. gemini-3.5-flash-lite + gemma-4-26b-a4b-it)
+    """Tier 2 Fallback Jury: polls the small LLMs in TIER2_SMALL_LLM_PANEL
     when Tier 1 (gemini-decision-1) escalates or has low confidence (< 0.75)."""
     panel_results: dict[str, JuryResult] = {}
     if live_api:
