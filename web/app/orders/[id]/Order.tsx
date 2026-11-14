@@ -40,6 +40,7 @@ export default function OrderView({ id }: { id: string }) {
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [chain, setChain] = useState<AuditVerify | null>(null);
   const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
 
   const load = useCallback(
     () =>
@@ -53,8 +54,10 @@ export default function OrderView({ id }: { id: string }) {
 
   async function act(kind: "approve" | "reject") {
     setErr("");
+    setBusy(true);  // no double submit while the request is in flight
     try { await api(`/orders/${id}/${kind}`, "POST"); } catch (e) { setErr((e as Error).message); }
     await load();
+    setBusy(false);
   }
 
   if (!order) return err ? <p className="err">{err}</p> : <p>Loading...</p>;
@@ -67,8 +70,8 @@ export default function OrderView({ id }: { id: string }) {
       <p>{order.need.text}{order.confirmation_no && <> | confirmation {order.confirmation_no}</>}</p>
       {err && <p className="err">{err}</p>}
       <div className="actions">
-        {canApprove && <button className="approve" onClick={() => act("approve")}>Approve</button>}
-        {canReject && <button className="reject" onClick={() => act("reject")}>Reject</button>}
+        {canApprove && <button className="approve" disabled={busy} onClick={() => act("approve")}>Approve</button>}
+        {canReject && <button className="reject" disabled={busy} onClick={() => act("reject")}>Reject</button>}
       </div>
 
       <h2>Lines</h2>
