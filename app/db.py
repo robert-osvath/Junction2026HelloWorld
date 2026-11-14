@@ -18,7 +18,9 @@ def connect_args(url: str) -> dict:
     if not u.hostname:
         raise ValueError("DB_URL has no host")  # never fall back to pymysql's default localhost
     args = dict(host=u.hostname, port=u.port or 3306, user=unquote(user), password=unquote(password),
-                database=u.path.lstrip("/"), autocommit=True, charset="utf8mb4")
+                database=u.path.lstrip("/"), autocommit=True, charset="utf8mb4",
+                # without read/write timeouts a socket the cloud DB dropped while idle blocks ping() for minutes
+                connect_timeout=10, read_timeout=15, write_timeout=15)
     if parse_qs(u.query).get("ssl", ["false"])[0].lower() in ("1", "true", "required"):
         args["ssl"] = {"ca": certifi.where()}  # pymysql only verifies the server cert when given a CA
     return args

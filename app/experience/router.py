@@ -8,6 +8,7 @@ approve or place an order.
 import json
 import logging
 import os
+import threading
 import re
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -159,7 +160,7 @@ def _validate_allergen_codes(codes: list[str]) -> None:
 
 
 @router.post("/policies", response_model=BuyerPolicyResponse)
-async def save_buyer_policy(request: BuyerPolicyRequest) -> BuyerPolicyResponse:
+def save_buyer_policy(request: BuyerPolicyRequest) -> BuyerPolicyResponse:
     """Save (edit) the buyer's policy. Ordering works without ever calling this: a default policy exists."""
     base = policies.current(request.buyer_name)
     update: dict = {}
@@ -193,7 +194,7 @@ async def save_buyer_policy(request: BuyerPolicyRequest) -> BuyerPolicyResponse:
 
 
 @router.get("/policy", response_model=Mandate)
-async def current_policy(buyer_name: str | None = Query(default=None, max_length=120)) -> Mandate:
+def current_policy(buyer_name: str | None = Query(default=None, max_length=120)) -> Mandate:
     """The buyer's current policy: latest saved one, else the simple default."""
     return policies.current(buyer_name)
 
@@ -333,7 +334,7 @@ async def live_token() -> LiveTokenResponse:
 
 
 @router.post("/voice-event", status_code=204)
-async def voice_event(event: VoiceEvent) -> None:
+def voice_event(event: VoiceEvent) -> None:
     """Local diagnostics for the browser-to-Gemini Live connection.
 
     Deliberately excludes transcript text, credentials, and audio data.
@@ -342,7 +343,7 @@ async def voice_event(event: VoiceEvent) -> None:
 
 
 @router.get("/elevenlabs/signed-url", response_model=ElevenLabsSessionResponse)
-async def elevenlabs_signed_url() -> ElevenLabsSessionResponse:
+def elevenlabs_signed_url() -> ElevenLabsSessionResponse:
     """Mint a short-lived authenticated URL for the desktop live session."""
     api_key = os.getenv("ELEVENLABS_API_KEY")
     if not api_key:
@@ -359,7 +360,7 @@ async def elevenlabs_signed_url() -> ElevenLabsSessionResponse:
 
 
 @router.get("/agent-state", response_model=AgentStateResponse)
-async def agent_state(
+def agent_state(
     auto_approve_limit: float | None = Query(default=None, ge=0, le=1000000),
 ) -> AgentStateResponse:
     """Expose the latest order/jury-agent verdicts to the buyer experience."""
@@ -367,7 +368,7 @@ async def agent_state(
 
 
 @router.post("/prepare-decision", response_model=Order)
-async def prepare_decision(request: PrepareDecisionRequest) -> Order:
+def prepare_decision(request: PrepareDecisionRequest) -> Order:
     """Deprecated: a client must create a catalog-backed draft instead."""
     del request
     raise HTTPException(status_code=410, detail="Create a catalog-backed draft with /experience/create-draft.")
@@ -423,8 +424,18 @@ def build_offers(req: OffersRequest) -> list[Offer]:
         conn.close()
 
 
+# The duplicate check and the order creation must not interleave: the route runs in a worker thread.
+# shortcut: one lock serialises all drafts (a few seconds each); per-buyer locks if many buyers order at once.
+_DRAFT_LOCK = threading.Lock()
+
+
 @router.post("/create-draft", response_model=Order)
-async def create_draft(request: CreateDraftRequest) -> Order:
+def create_draft(request: CreateDraftRequest) -> Order:
+    with _DRAFT_LOCK:
+        return _create_draft(request)
+
+
+def _create_draft(request: CreateDraftRequest) -> Order:
     """Create an order draft from an explicitly selected catalog product.
 
     Price, availability, and package quantity are rebuilt from the Valio Aimo
