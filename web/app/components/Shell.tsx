@@ -11,6 +11,8 @@ type Nav = { href: string; label: string; icon: IconName; count?: Status };
 const NAV: Nav[] = [
   { href: "/", label: "Overview", icon: "home" },
   { href: "/setup", label: "Getting started", icon: "sparkles" },
+  { href: "/sourcing", label: "Sourcing", icon: "search" },
+  { href: "/jury", label: "Jury decisions", icon: "users", count: "substitutes_proposed" },
   { href: "/approvals", label: "Approval inbox", icon: "check", count: "pending_approval" },
   { href: "/timeline", label: "Audit timeline", icon: "history" },
 ];
