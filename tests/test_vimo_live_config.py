@@ -99,3 +99,13 @@ def test_vimo_always_speaks_after_event_tools() -> None:
     prompt = live_config()["conversation_config"]["agent"]["prompt"]["prompt"]
     assert "As soon as plan_event returns, always speak" in prompt
     assert "never stay silent after it" in prompt
+
+
+def test_create_body_attaches_tools_by_new_id_not_inline() -> None:
+    config = live_config()
+    body = publish_module().create_body(config, ["t1", "t2"])
+    prompt = body["conversation_config"]["agent"]["prompt"]
+    assert "tools" not in prompt and prompt["tool_ids"] == ["t1", "t2"]
+    assert prompt["prompt"] == config["conversation_config"]["agent"]["prompt"]["prompt"]
+    assert body["platform_settings"]["auth"]["enable_auth"] is True  # sessions only via our signed URL
+    assert "tools" in config["conversation_config"]["agent"]["prompt"]  # the tracked file is untouched

@@ -5,6 +5,7 @@ Run without ``--apply`` to inspect the exact target. Publishing requires
 """
 
 import argparse
+import copy
 import json
 import os
 from pathlib import Path
@@ -92,6 +93,59 @@ def live_tools(headers: dict, tool_ids: list[str]) -> dict[str, tuple[str, dict]
     return tools
 
 
+def sync_tools(headers: dict, tool_plan: list[tuple[str, dict, str | None]]) -> list[str]:
+    """Apply a plan_tools plan; returns the tool ids in tracked order."""
+    tool_ids = []
+    for action, tool, tool_id in tool_plan:
+        if action == "create":
+            r = httpx.post(TOOLS_BASE, headers=headers, json={"tool_config": tool}, timeout=30)
+            r.raise_for_status()
+            tool_id = r.json()["id"]
+        elif action == "update":
+            httpx.patch(f"{TOOLS_BASE}/{tool_id}", headers=headers, json={"tool_config": tool}, timeout=30).raise_for_status()
+        print(f"  tool {tool['name']}: {action} ({tool_id})")
+        tool_ids.append(tool_id)
+    return tool_ids
+
+
+def create_body(config: dict, tool_ids: list[str]) -> dict:
+    """The full tracked agent for a new workspace: tools attached by their new ids, not inline."""
+    conversation = copy.deepcopy(config["conversation_config"])
+    prompt = conversation["agent"]["prompt"]
+    prompt.pop("tools", None)
+    prompt["tool_ids"] = tool_ids
+    return {"name": config["name"], "tags": config.get("tags", []), "conversation_config": conversation,
+            "platform_settings": config.get("platform_settings", {})}
+
+
+def create_agent(config: dict, headers: dict) -> dict:
+    """Create Vimo in the workspace of ELEVENLABS_API_KEY (rerunnable: reuses tools and the agent by name)
+    and point agents.json at it."""
+    existing = httpx.get(API_BASE, params={"search": config["name"], "page_size": 100}, headers=headers, timeout=30)
+    existing.raise_for_status()
+    match = [a for a in existing.json().get("agents", []) if a.get("name") == config["name"]]
+    if match:
+        agent_id = match[0]["agent_id"]
+        print(f"Agent {config['name']} already exists: {agent_id}")
+    else:
+        tool_ids = sync_tools(headers, plan_tools(config["conversation_config"]["agent"]["prompt"]["tools"],
+                                                  live_tools(headers, [])))
+        r = httpx.post(f"{API_BASE}/create", headers=headers, json=create_body(config, tool_ids), timeout=60)
+        if r.status_code >= 400:
+            raise SystemExit(f"create failed {r.status_code}: {r.text[:500]}")
+        agent_id = r.json()["agent_id"]
+        print(f"Created agent {config['name']}: {agent_id}")
+    agent = httpx.get(f"{API_BASE}/{agent_id}", headers=headers, timeout=30)
+    agent.raise_for_status()
+    body = agent.json()
+    registered = {"agents": [{"config": "agent_configs/vimo-live.json", "id": agent_id,
+                              "branch_id": body.get("branch_id") or body.get("main_branch_id"),
+                              "version_id": body.get("version_id")}]}
+    AGENTS_PATH.write_text(json.dumps(registered, indent=4) + "\n")
+    print(f"agents.json now points at {agent_id}")
+    return body
+
+
 def require_fully_live(branch: dict) -> None:
     """Refuse to update a staging branch that would not receive conversations."""
     percentage = float(branch.get("current_live_percentage", 0))
@@ -105,7 +159,16 @@ def require_fully_live(branch: dict) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true", help="update tools and PATCH the configured ElevenLabs agent branch")
+    parser.add_argument("--create", action="store_true",
+                        help="create the agent and its tools in ELEVENLABS_API_KEY's workspace (account move)")
     args = parser.parse_args()
+
+    if args.create:
+        load_dotenv(ROOT / ".env")
+        if not os.getenv("ELEVENLABS_API_KEY"):
+            raise SystemExit("ELEVENLABS_API_KEY is required")
+        create_agent(json.loads(CONFIG_PATH.read_text()), {"xi-api-key": os.environ["ELEVENLABS_API_KEY"]})
+        return
 
     config, agent = deployment_target()
     patch = turn_patch(config)
@@ -138,16 +201,7 @@ def main() -> None:
         print("Run with --apply after review to publish these settings.")
         return
 
-    tool_ids = []
-    for action, tool, tool_id in tool_plan:
-        if action == "create":
-            r = httpx.post(TOOLS_BASE, headers=headers, json={"tool_config": tool}, timeout=30)
-            r.raise_for_status()
-            tool_id = r.json()["id"]
-        elif action == "update":
-            httpx.patch(f"{TOOLS_BASE}/{tool_id}", headers=headers, json={"tool_config": tool}, timeout=30).raise_for_status()
-        print(f"  tool {tool['name']}: {action} ({tool_id})")
-        tool_ids.append(tool_id)
+    tool_ids = sync_tools(headers, tool_plan)
     patch["conversation_config"]["agent"]["prompt"]["tool_ids"] = tool_ids
     response = httpx.patch(
         f"{API_BASE}/{agent_id}",
