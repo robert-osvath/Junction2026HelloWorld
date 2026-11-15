@@ -186,6 +186,10 @@ def test_round_to_lot_never_returns_zero_for_huge_lots():
     ("Valio Eila 10 l", "Valio Eila 10 l", None),
     ("5x MUU Hot Dog Sausage 220 g", "", None),  # leading count: scope unclear
     ("ARC 6PCS tumbler 12 pcs", "", None),       # disagreeing counts
+    ("Feelia Meatballs deep frozen 20g 4x1kg", "", None),     # 4 bags of ~50 meatballs, not 4 pieces
+    ("Grilled aubergine 4x1kg", "", None),
+    ("Mondo Fresco Cream puff 2 x 1kg (á 20 g)", "", None),
+    ("Mondo Fresco Crème Brûlée pastry 20x90g frozen", "", 20),
 ])
 def test_pieces_per_pack_from_name(en, fi, expected):
     from app.catalog.offers import pieces_per_pack

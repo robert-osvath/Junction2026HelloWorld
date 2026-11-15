@@ -63,7 +63,9 @@ def round_to_lot(n: int, lot: float | None) -> int:
 
 
 _PCS = re.compile(r"(?:(\d+)\s*[x×]\s*)?(\d+)\s*(?:pcs|pc|kpl|st)\b", re.I)          # "15pcs", "(4x30pcs)"
-_COUNT_X_SIZE = re.compile(r"(?<=\s)(\d+)\s*[x×]\s*\d+(?:[.,]\d+)?\s*(?:g|kg|ml|cl|dl|l)\b", re.I)  # "36X70G"
+# "36X70G" = 36 pieces of 70 g. Only small units: "4x1kg" is 4 bags of meatballs, not 4 pieces.
+_COUNT_X_SIZE = re.compile(r"(?<=\s)(\d+)\s*[x×]\s*\d+(?:[.,]\d+)?\s*(?:g|ml|cl|dl)\b", re.I)
+_WEIGHT = re.compile(r"\d+(?:[.,]\d+)?\s*(?:g|kg|ml|cl|dl|l)\b", re.I)
 _EGGS = re.compile(r"\b(?:egg|eggs|muna|kananmuna)\b.*?\b(?:S|M|L|XL)(\d{1,2})\b|\b(?:S|M|L|XL)(\d{1,2})\b.*\b(?:egg|eggs|muna)", re.I)
 
 
@@ -73,7 +75,9 @@ def pieces_per_pack(row: Mapping[str, Any]) -> int | None:
     found = set()
     for name in (row.get("name_en"), row.get("name_fi")):
         name = name or ""
-        counts = {int(a or 1) * int(b) for a, b in _PCS.findall(name)} | {int(n) for n in _COUNT_X_SIZE.findall(name)}
+        counts = {int(a or 1) * int(b) for a, b in _PCS.findall(name)}
+        if len(_WEIGHT.findall(name)) == 1:  # a second weight ("20g", "á 20 g") means bags of smaller pieces
+            counts |= {int(n) for n in _COUNT_X_SIZE.findall(name)}
         counts |= {int(x or y) for x, y in _EGGS.findall(name)}
         if len(counts) == 1:
             found |= counts
