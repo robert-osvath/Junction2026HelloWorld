@@ -176,3 +176,28 @@ def test_endpoint_bad_quantity_422(q):
 def test_round_to_lot_never_returns_zero_for_huge_lots():
     assert round_to_lot(1, 1e9) == 1_000_000_000
     assert round_to_lot(7, 1e12) == 1_000_000_000_000
+
+
+@pytest.mark.parametrize("en,fi,expected", [
+    ("Savupojat Hot Dog nakki 15pcs/1000 g, knackwurst", "Savupojat Hot Dog nakki 15kpl/1000 g", 15),
+    ("Sibylla Hotdog Sausage frozen (4x30pcs) 7,2kg", "", 120),
+    ("LV HOT DOG BRIOCHE 36X70G", "", 36),
+    ("Kieku Loimaan Organic eggs M6 348g", "Kieku Loimaan Luomukananmuna M6 348g", 6),
+    ("Valio Eila 10 l", "Valio Eila 10 l", None),
+    ("5x MUU Hot Dog Sausage 220 g", "", None),  # leading count: scope unclear
+    ("ARC 6PCS tumbler 12 pcs", "", None),       # disagreeing counts
+    ("Feelia Meatballs deep frozen 20g 4x1kg", "", None),     # 4 bags of ~50 meatballs, not 4 pieces
+    ("Grilled aubergine 4x1kg", "", None),
+    ("Mondo Fresco Cream puff 2 x 1kg (á 20 g)", "", None),
+    ("Mondo Fresco Crème Brûlée pastry 20x90g frozen", "", 20),
+])
+def test_pieces_per_pack_from_name(en, fi, expected):
+    from app.catalog.offers import pieces_per_pack
+    assert pieces_per_pack({"name_en": en, "name_fi": fi}) == expected
+
+
+def test_pcs_uses_pieces_in_the_name():
+    """Live: 200 hot dogs became 200 packs of 15 (stock 61 -> 'cannot be sourced'); it is 14 packs."""
+    r = row("474257", "ST", "ST", size=1.0, en="Savupojat Hot Dog nakki 15pcs/1000 g", fi="")
+    (o,) = one(n=need(200, "pcs"), r=r, p=price("474257", 8.48, 8.48, "KG"), a=avail("474257", "Stock", 61), pid="474257")
+    assert o.units_needed == 14 and o.evidence.stock == "verified"
